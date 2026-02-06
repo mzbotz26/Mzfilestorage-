@@ -37,7 +37,8 @@ async def add_user(user_id):
         'shortener_mode': 'each_time',
         'daily_notify_enabled': False,
         # --- LEGENDARY MODIFICATION: Renamed to backup_channels and initialized as a list ---
-        'backup_channels': []
+        'backup_channels': [],
+        'verified_until': 0
     }
     await users.update_one({'user_id': user_id}, {"$setOnInsert": user_data}, upsert=True)
 
