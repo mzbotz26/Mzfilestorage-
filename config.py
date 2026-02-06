@@ -2,14 +2,14 @@ import os
 
 class Config:
     # Your API details from my.telegram.org
-    API_ID = int(os.environ.get("API_ID", "13441344"))
-    API_HASH = os.environ.get("API_HASH", "2f10533d9068507d0c10bf1074527167")
+    API_ID = int(os.environ.get("API_ID", ""))
+    API_HASH = os.environ.get("API_HASH", "")
 
     # Your Bot Token
-    BOT_TOKEN = os.environ.get("BOT_TOKEN", "8590179820:AAHVLA6j_GTXymf4imFbnT6ySmvVT1HrgYM")
+    BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
     # Your Admin User ID
-    ADMIN_ID = int(os.environ.get("ADMIN_ID", "6139607609"))
+    ADMIN_ID = int(os.environ.get("ADMIN_ID", ""))
     
     # Your Owner DB Channel ID
     OWNER_DB_CHANNEL = int(os.environ.get("OWNER_DB_CHANNEL", "-1003433884727"))
@@ -19,7 +19,7 @@ class Config:
     DATABASE_NAME = os.environ.get("DATABASE_NAME", "File_Storage")
     
     # --- TMDB API Key (Optional, for posters) ---
-    TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "5a318417c7f4a722afd9d71df548877b") #add your own
+    TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "") #add your own
     
     # --- DECREED MODIFICATION: Replaced VPS_IP and VPS_PORT ---
     # The full public URL of your application (e.g., https://my-bot.koyeb.app or https://my-bot.herokuapp.com)
