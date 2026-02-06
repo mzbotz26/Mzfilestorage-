@@ -131,11 +131,17 @@ async def start_command(client, message):
 async def handle_public_file_request(client, message, requester_id, payload):
     try:
         parts = payload.split("_")
-        owner_id = int(parts[1])
-        file_unique_id = "_".join(parts[2:])
-    except:
-        return await message.reply_text("Invalid link.")
 
+        if len(parts) < 3:
+            return await message.reply_text("❌ Invalid or expired link.")
+
+        owner_id = int(parts[1])
+        file_unique_id = "_".join(parts[2:])  # important for shortlink safety
+
+    except Exception as e:
+        logger.error(f"Payload parse error: {payload} | {e}")
+        return await message.reply_text("❌ Invalid or expired link.")
+        
     owner_settings = await get_user(owner_id)
     requester = await get_user(requester_id)
 
