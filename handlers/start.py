@@ -151,8 +151,8 @@ async def handle_public_file_request(client, message, requester_id, payload):
     # OWNER BYPASS
     if requester_id != owner_id:
         if not await is_verified_24h(requester):
-            deep = f"https://t.me/{client.me.username}?start=verify_{requester_id}"
-            verify_link = await get_shortlink(deep, requester_id)
+            deep = f"https://t.me/{client.me.username}?start=verify"
+            verify_link = await get_shortlink(deep, owner_id)
 
             return await message.reply_text(
                 "🔐 **Verification Required**\n\nVerify once to unlock files for **24 hours**.",
