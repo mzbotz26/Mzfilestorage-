@@ -187,7 +187,7 @@ async def send_file(client, requester_id, owner_id, file_unique_id):
     caption = (
         f"🎬 **Your Movie File Is Ready!**\n\n"
         f"📁 **File:** `{file_data.get('file_name','Movie File')}`\n\n"
-        f"💪 Powered By : [MzMoviiez](https://t.me/mzmoviez)\n"
+        f"💪 Powered By : [MzMoviiez](https://t.me/mzmoviiez)\n"
         f"🎬 How To Download : [Click Here]({Config.TUTORIAL_URL})\n\n"
         f"⏳ **This file will auto delete in 15 minutes**"
     )
