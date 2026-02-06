@@ -146,6 +146,71 @@ async def get_imdb_extra(title):
     except:
         return "", "", ""
 
+import aiohttp
+
+# ================= TMDB EXTRA DATA =================
+
+async def get_tmdb_extra(title, year=None):
+    try:
+        api = Config.TMDB_API_KEY
+        if not api:
+            return "", "", ""
+
+        query = title.replace(" ", "%20")
+        url = f"https://api.themoviedb.org/3/search/movie?api_key={api}&query={query}"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+
+        results = data.get("results")
+        if not results:
+            return "", "", ""
+
+        movie = results[0]
+        overview = movie.get("overview", "")
+        rating = movie.get("vote_average", "")
+        genre_ids = movie.get("genre_ids", [])
+
+        # genre mapping
+        genre_map = {
+            28:"Action",12:"Adventure",16:"Animation",35:"Comedy",80:"Crime",
+            99:"Documentary",18:"Drama",10751:"Family",14:"Fantasy",36:"History",
+            27:"Horror",10402:"Music",9648:"Mystery",10749:"Romance",
+            878:"Sci-Fi",10770:"TV",53:"Thriller",10752:"War",37:"Western"
+        }
+
+        genres = ", ".join([genre_map.get(i,"") for i in genre_ids if i in genre_map])
+
+        return genres, rating, overview
+
+    except Exception:
+        return "", "", ""
+
+# ================= HYBRID IMDb + TMDB =================
+
+async def get_movie_extra(title, year=None):
+    """
+    First try IMDb.
+    If IMDb fails or empty -> fallback to TMDB.
+    """
+
+    # ---- Try IMDb first ----
+    try:
+        genres, rating, story = await get_imdb_extra(title)
+
+        # if IMDb returned something useful
+        if genres or rating or story:
+            return genres, rating, story
+    except:
+        pass
+
+    # ---- Fallback to TMDB ----
+    try:
+        return await get_tmdb_extra(title, year)
+    except:
+        return "", "", ""
+
 async def clean_and_parse_filename(name: str, cache: dict = None):
     """
     A next-gen, multi-pass robust filename parser that preserves all metadata.
@@ -303,7 +368,7 @@ async def create_post(client, user_id, messages, cache: dict):
     first_info = media_info_list[0]
     primary_display_title = first_info['display_title']
 
-    genres, rating, story = await get_imdb_extra(primary_display_title)
+    genres, rating, story = await get_movie_extra(primary_display_title, first_info.get("year"))
 
     poster_search_query = first_info['batch_title']
     post_poster = await get_poster(poster_search_query, first_info['year']) if user.get('show_poster', True) else None
