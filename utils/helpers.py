@@ -380,7 +380,7 @@ async def create_post(client, user_id, messages, cache: dict):
         file_unique_id = info['file_unique_id']
         bot_username = client.me.username
         deep_link = f"https://t.me/{bot_username}?start=get_{owner_id}_{file_unique_id}"
-        link = await get_shortlink(deep_link, owner_id)
+        link = deep_link
 
         file_size_str = format_bytes(info['file_size'])
         display_tags = info.get("quality_tags") or "File"
