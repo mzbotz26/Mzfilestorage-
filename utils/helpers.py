@@ -402,7 +402,7 @@ async def create_post(client, user_id, messages, cache: dict):
 
     for entry in all_link_entries:
         if current_length + len(entry) + 2 > CAPTION_LIMIT and current_links_part:
-            final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
+            final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/mzbotz)**\n🎬 **[How To Download](" + Config.TUTORIAL_URL + ")**"
             final_posts.append((post_poster if not final_posts else None, final_caption, None))
             current_links_part = [entry]
             current_length = len(base_caption) + len(entry)
@@ -411,7 +411,7 @@ async def create_post(client, user_id, messages, cache: dict):
             current_length += len(entry)
 
     if current_links_part:
-        final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
+        final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**\n🎬 **[How To Download](" + Config.TUTORIAL_URL + ")**"
         final_posts.append((post_poster if not final_posts else None, final_caption, None))
 
     return final_posts
