@@ -187,20 +187,32 @@ async def get_backup_channels(user_id: int):
 async def save_file_data(owner_id, original_message, copied_message, stream_message):
     """Saves file metadata, including the new stream_id."""
     from utils.helpers import get_file_raw_link
+
     original_media = getattr(original_message, original_message.media.value)
     raw_link = await get_file_raw_link(copied_message)
+
     file_data = {
         'owner_id': owner_id,
         'file_unique_id': original_media.file_unique_id,
-        'file_id': copied_message.id,
-        'stream_id': stream_message.id,
+
+        # ✅ REAL telegram file_id (IMPORTANT)
+        'file_id': original_media.file_id,
+
+        # channel message id only for stream
+        'stream_id': copied_message.id,
+
         'file_name': original_media.file_name,
         'file_size': original_media.file_size,
         'raw_link': raw_link
     }
+
     await files.update_one(
-        {'owner_id': owner_id, 'file_unique_id': original_media.file_unique_id},
-        {'$set': file_data}, upsert=True
+        {
+            'owner_id': owner_id,
+            'file_unique_id': original_media.file_unique_id
+        },
+        {'$set': file_data},
+        upsert=True
     )
 
 async def get_user(user_id):
