@@ -1,6 +1,7 @@
 # widhvans/store/widhvans-store-a32dae6d5f5487c7bc78b13e2cdc18082aef6c58/utils/helpers.py
 
 import re
+import aiohttp
 import base64
 import logging
 import PTN
@@ -145,8 +146,6 @@ async def get_imdb_extra(title):
         return genres, rating, plot
     except:
         return "", "", ""
-
-import aiohttp
 
 # ================= TMDB EXTRA DATA =================
 
@@ -403,7 +402,7 @@ async def create_post(client, user_id, messages, cache: dict):
 
     for entry in all_link_entries:
         if current_length + len(entry) + 2 > CAPTION_LIMIT and current_links_part:
-            final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : MzMoviiez**"
+            final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
             final_posts.append((post_poster if not final_posts else None, final_caption, None))
             current_links_part = [entry]
             current_length = len(base_caption) + len(entry)
@@ -412,7 +411,7 @@ async def create_post(client, user_id, messages, cache: dict):
             current_length += len(entry)
 
     if current_links_part:
-        final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : MzMoviiez**"
+        final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
         final_posts.append((post_poster if not final_posts else None, final_caption, None))
 
     return final_posts
