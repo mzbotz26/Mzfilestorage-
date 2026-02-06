@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import time
@@ -183,13 +184,28 @@ async def send_file(client, requester_id, owner_id, file_unique_id):
         [InlineKeyboardButton("📺 Stream / Download", url=f"{Config.APP_URL.rstrip('/')}/watch/{file_data['stream_id']}")]
     ]
 
-    await client.copy_message(
+    caption = (
+        f"🎬 **Your Movie File Is Ready!**\n\n"
+        f"📁 **File:** `{file_data.get('file_name','Movie File')}`\n\n"
+        f"💪 Powered By : [MzMoviiez](https://t.me/mzmoviez)\n"
+        f"🎬 How To Download : [Click Here]({Config.TUTORIAL_URL})\n\n"
+        f"⏳ **This file will auto delete in 15 minutes**"
+    )
+
+    sent = await client.send_cached_media(
         chat_id=requester_id,
-        from_chat_id=client.owner_db_channel,
-        message_id=file_data["file_id"],
+        file_id=file_data["file_id"],
+        caption=caption,
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.MARKDOWN
     )
+
+    # ===== AUTO DELETE AFTER 15 MIN =====
+    await asyncio.sleep(900)
+    try:
+        await sent.delete()
+    except:
+        pass
 
 
 # ================= CALLBACKS =================
