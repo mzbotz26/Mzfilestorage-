@@ -497,7 +497,6 @@ async def create_post(client, user_id, messages, cache: dict):
                 base_caption
                 + "\n\n".join(current_links_part)
                 + f"\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
-                + f"\n🎬 **[How To Download]({Config.TUTORIAL_URL})**"
             )
             final_posts.append((post_poster if not final_posts else None, final_caption, None))
             current_links_part = [entry]
@@ -511,7 +510,6 @@ async def create_post(client, user_id, messages, cache: dict):
             base_caption
             + "\n\n".join(current_links_part)
             + f"\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
-            + f"\n🎬 **[How To Download]({Config.TUTORIAL_URL})**"
         )
         final_posts.append((post_poster if not final_posts else None, final_caption, None))
 
