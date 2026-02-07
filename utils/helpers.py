@@ -186,26 +186,69 @@ async def get_tmdb_extra(title, year=None):
     except Exception:
         return "", "", ""
 
+# ================= TMDB TV EXTRA DATA =================
+
+async def get_tmdb_tv_extra(title, year=None):
+    try:
+        api = Config.TMDB_API_KEY
+        if not api:
+            return "", "", ""
+
+        query = title.replace(" ", "%20")
+        url = f"https://api.themoviedb.org/3/search/tv?api_key={api}&query={query}"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                data = await resp.json()
+
+        results = data.get("results")
+        if not results:
+            return "", "", ""
+
+        show = results[0]
+        overview = show.get("overview", "")
+        rating = show.get("vote_average", "")
+        genre_ids = show.get("genre_ids", [])
+
+        genre_map = {
+            10759:"Action & Adventure",16:"Animation",35:"Comedy",80:"Crime",
+            99:"Documentary",18:"Drama",10751:"Family",10762:"Kids",
+            9648:"Mystery",10763:"News",10764:"Reality",
+            10765:"Sci-Fi & Fantasy",10766:"Soap",10767:"Talk",
+            10768:"War & Politics",37:"Western"
+        }
+
+        genres = ", ".join([genre_map.get(i,"") for i in genre_ids if i in genre_map])
+
+        return genres, rating, overview
+
+    except Exception:
+        return "", "", ""
+
 # ================= HYBRID IMDb + TMDB =================
 
-async def get_movie_extra(title, year=None):
+async def get_movie_extra(title, year=None, is_series=False):
     """
-    TMDB FIRST (latest movies)
-    IMDb fallback (fill missing fields / old movies)
+    MOVIES → TMDB movie → IMDb fallback
+    SERIES → TMDB tv → IMDb fallback
     """
 
     genres = rating = story = ""
 
-    # ---- TMDB FIRST ----
+    # ===== TMDB FIRST =====
     try:
-        t_genres, t_rating, t_story = await get_tmdb_extra(title, year)
+        if is_series:
+            t_genres, t_rating, t_story = await get_tmdb_tv_extra(title, year)
+        else:
+            t_genres, t_rating, t_story = await get_tmdb_extra(title, year)
+
         genres = t_genres or ""
         rating = t_rating or ""
         story = t_story or ""
     except:
         pass
 
-    # ---- IMDb FALLBACK (only missing fields) ----
+    # ===== IMDb FALLBACK =====
     try:
         i_genres, i_rating, i_story = await get_imdb_extra(title)
 
@@ -399,9 +442,10 @@ async def create_post(client, user_id, messages, cache: dict):
     # ================= EXTRA MOVIE INFO =================
 
     genres, rating, story = await get_movie_extra(
-        clean_title_for_api,
-        first_info.get("year")
-    )
+    clean_title_for_api,
+    first_info.get("year"),
+    is_series=first_info.get("is_series")
+)
 
     # ================= POSTER =================
 
