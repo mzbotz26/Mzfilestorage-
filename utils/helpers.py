@@ -190,23 +190,22 @@ async def get_tmdb_extra(title, year=None):
 
 async def get_movie_extra(title, year=None):
     """
-    First try IMDb.
-    If IMDb fails or empty -> fallback to TMDB.
+    TMDB FIRST (for latest movies)
+    IMDb fallback (for old/classic movies)
     """
 
-    # ---- Try IMDb first ----
+    # ---- Try TMDB first ----
     try:
-        genres, rating, story = await get_imdb_extra(title)
+        genres, rating, story = await get_tmdb_extra(title, year)
 
-        # if IMDb returned something useful
         if genres or rating or story:
             return genres, rating, story
     except:
         pass
 
-    # ---- Fallback to TMDB ----
+    # ---- Fallback to IMDb ----
     try:
-        return await get_tmdb_extra(title, year)
+        return await get_imdb_extra(title)
     except:
         return "", "", ""
 
