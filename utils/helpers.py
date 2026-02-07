@@ -190,24 +190,35 @@ async def get_tmdb_extra(title, year=None):
 
 async def get_movie_extra(title, year=None):
     """
-    TMDB FIRST (for latest movies)
-    IMDb fallback (for old/classic movies)
+    TMDB FIRST (latest movies)
+    IMDb fallback (fill missing fields / old movies)
     """
 
-    # ---- Try TMDB first ----
-    try:
-        genres, rating, story = await get_tmdb_extra(title, year)
+    genres = rating = story = ""
 
-        if genres or rating or story:
-            return genres, rating, story
+    # ---- TMDB FIRST ----
+    try:
+        t_genres, t_rating, t_story = await get_tmdb_extra(title, year)
+        genres = t_genres or ""
+        rating = t_rating or ""
+        story = t_story or ""
     except:
         pass
 
-    # ---- Fallback to IMDb ----
+    # ---- IMDb FALLBACK (only missing fields) ----
     try:
-        return await get_imdb_extra(title)
+        i_genres, i_rating, i_story = await get_imdb_extra(title)
+
+        if not genres:
+            genres = i_genres
+        if not rating:
+            rating = i_rating
+        if not story:
+            story = i_story
     except:
-        return "", "", ""
+        pass
+
+    return genres, rating, story
 
 async def clean_and_parse_filename(name: str, cache: dict = None):
     """
