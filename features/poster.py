@@ -42,21 +42,55 @@ async def _find_poster_from_imdb(query: str):
     return None
 
 async def _find_poster_from_tmdb(query: str, year: str = None):
-    """Internal function to get the best-guess poster from TMDB for a single query."""
-    if not Config.TMDB_API_KEY: return None
+    if not Config.TMDB_API_KEY:
+        return None
+
     try:
         search_url = "https://api.themoviedb.org/3/search/multi"
-        params = {"api_key": Config.TMDB_API_KEY, "query": query, "include_adult": "false"}
-        if year: params['year'] = year
+        params = {
+            "api_key": Config.TMDB_API_KEY,
+            "query": query,
+            "include_adult": "false"
+        }
+
         async with aiohttp.ClientSession() as session:
             async with session.get(search_url, params=params, timeout=10) as resp:
-                if resp.status != 200: return None
+                if resp.status != 200:
+                    return None
+
                 data = await resp.json()
-                if data.get('results') and data['results'][0].get("poster_path"):
-                    return f"https://image.tmdb.org/t/p/w500{data['results'][0]['poster_path']}"
-    except Exception:
+                results = data.get("results", [])
+                if not results:
+                    return None
+
+                # 🎯 FILTER ONLY MOVIES WITH POSTER
+                movies = [
+                    r for r in results
+                    if r.get("media_type") == "movie"
+                    and r.get("poster_path")
+                ]
+
+                if not movies:
+                    return None
+
+                # 🎯 YEAR MATCH FIRST
+                if year:
+                    for m in movies:
+                        release_year = (m.get("release_date") or "")[:4]
+                        if release_year == str(year):
+                            return f"https://image.tmdb.org/t/p/w500{m['poster_path']}"
+
+                # 🎯 FALLBACK: LATEST MOVIE
+                movies.sort(
+                    key=lambda x: x.get("release_date") or "0000-00-00",
+                    reverse=True
+                )
+
+                return f"https://image.tmdb.org/t/p/w500{movies[0]['poster_path']}"
+
+    except Exception as e:
+        logger.error(f"TMDB poster error: {e}")
         return None
-    return None
 
 async def get_poster(query: str, year: str = None):
     """
