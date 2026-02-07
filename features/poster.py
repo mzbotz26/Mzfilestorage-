@@ -60,33 +60,41 @@ async def _find_poster_from_tmdb(query: str, year: str = None):
 
 async def get_poster(query: str, year: str = None):
     """
-    The definitive 'waterfall' poster finder. It tries every possible combination
-    of truncated queries and sources until it gets a match.
+    TMDB FIRST → IMDb FALLBACK
+    Logic intact, only priority changed
     """
-    # Final guardrail: Sanitize the query to remove stray characters like quotes
+
     sanitized_query = query.replace('"', '').strip()
-    
     search_queries = generate_search_queries(sanitized_query)
-    logger.info(f"Waterfall Search: Starting for '{sanitized_query}'. Queries: {search_queries}")
+
+    logger.info(f"TMDB-FIRST Search Started for '{sanitized_query}'")
 
     for sq in search_queries:
-        logger.info(f"Waterfall Search: Trying query '{sq}'...")
-        
-        # --- IMDb First (User Preference) ---
-        if year:
-            poster = await _find_poster_from_imdb(f"{sq} {year}")
-            if poster: logger.info(f"SUCCESS: IMDb with year for '{sq}'"); return poster
-        
-        poster = await _find_poster_from_imdb(sq)
-        if poster: logger.info(f"SUCCESS: IMDb without year for '{sq}'"); return poster
-        
-        # --- TMDB Second (API Fallback) ---
+        logger.info(f"Trying query: {sq}")
+
+        # ================= TMDB FIRST =================
         if year:
             poster = await _find_poster_from_tmdb(sq, year)
-            if poster: logger.info(f"SUCCESS: TMDB with year for '{sq}'"); return poster
-        
-        poster = await _find_poster_from_tmdb(sq)
-        if poster: logger.info(f"SUCCESS: TMDB without year for '{sq}'"); return poster
+            if poster:
+                logger.info(f"SUCCESS: TMDB with year for '{sq}'")
+                return poster
 
-    logger.error(f"Waterfall Search: All attempts failed for base query '{query}'.")
+        poster = await _find_poster_from_tmdb(sq)
+        if poster:
+            logger.info(f"SUCCESS: TMDB without year for '{sq}'")
+            return poster
+
+        # ================= IMDb FALLBACK =================
+        if year:
+            poster = await _find_poster_from_imdb(f"{sq} {year}")
+            if poster:
+                logger.info(f"SUCCESS: IMDb with year for '{sq}'")
+                return poster
+
+        poster = await _find_poster_from_imdb(sq)
+        if poster:
+            logger.info(f"SUCCESS: IMDb without year for '{sq}'")
+            return poster
+
+    logger.error(f"Poster not found for '{query}'")
     return None
