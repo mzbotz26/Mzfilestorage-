@@ -69,46 +69,65 @@ class Bot(Client):
         self.last_health_check_error = "" 
 
     async def execute_with_retry(self, coro, *args, **kwargs):
-        retries = 7
-        base_delay = 5
-        for i in range(retries):
-            try:
-                await self.is_in_flood_wait.wait()
-                await self.is_healthy.wait()
-                return await coro(*args, **kwargs)
-            except FloodWait as e:
-                logger.warning(f"FloodWait of {e.value}s detected. Engaging global pause.")
-                self.is_in_flood_wait.clear()
-                self.flood_wait_duration = e.value + 10
-                
-                if self.is_in_flood_wait.is_set():
-                    try:
-                        await self.send_message(Config.ADMIN_ID, f"🚨 **FloodWait Triggered!**\n\nI will pause all outgoing actions for `{self.flood_wait_duration}` seconds.")
-                    except Exception as admin_notify_err:
-                        logger.error(f"Failed to notify admin about FloodWait: {admin_notify_err}")
+    retries = 7
+    base_delay = 5
 
-                await asyncio.sleep(self.flood_wait_duration)
-                self.is_in_flood_wait.set()
-                logger.info("Global pause finished. Resuming operations.")
-                continue
-            except (asyncio.TimeoutError, PeerIdInvalid, ChannelInvalid, ChatForwardsRestricted) as e:
-                delay = base_delay * (2 ** i)
-                logger.warning(f"Transient Telegram error: {type(e).__name__}. Retrying in {delay}s... (Attempt {i + 1}/{retries})")
-                await asyncio.sleep(delay)
-            except MessageNotModified:
-                logger.warning("Attempted to edit message with the same content. Skipping.")
-                return None
-            except UserIsBlocked:
-                logger.warning(f"Action failed because user has blocked the bot. Aborting this action.")
-                raise
-            except Exception as e:
-                logger.error(f"A non-retriable error occurred in execute_with_retry: {e}", exc_info=True)
-                self.is_healthy.clear()
-                self.last_health_check_error = str(e)
-                raise
-        logger.error(f"Failed to execute action after {retries} retries. Marking bot as unhealthy.")
-        self.is_healthy.clear()
-        raise Exception(f"Action failed after {retries} retries.")
+    for i in range(retries):
+        try:
+            await self.is_in_flood_wait.wait()
+            await self.is_healthy.wait()
+            return await coro(*args, **kwargs)
+
+        except FloodWait as e:
+            logger.warning(f"FloodWait of {e.value}s detected. Engaging global pause.")
+
+            self.is_in_flood_wait.clear()
+            self.flood_wait_duration = e.value + 10
+
+            # Admin notify (safe)
+            try:
+                await self.send_message(
+                    Config.ADMIN_ID,
+                    f"🚨 **FloodWait Triggered!**\n\n"
+                    f"I will pause all outgoing actions for `{self.flood_wait_duration}` seconds."
+                )
+            except Exception as admin_notify_err:
+                logger.error(f"Failed to notify admin about FloodWait: {admin_notify_err}")
+
+            # ❗ blocking sleep ki jagah non-fatal sleep
+            await asyncio.sleep(self.flood_wait_duration)
+            self.is_in_flood_wait.set()
+            logger.info("Global pause finished. Resuming operations.")
+            continue
+
+        except (asyncio.TimeoutError, PeerIdInvalid, ChannelInvalid, ChatForwardsRestricted) as e:
+            delay = base_delay * (2 ** i)
+            logger.warning(
+                f"Transient Telegram error: {type(e).__name__}. "
+                f"Retrying in {delay}s... (Attempt {i + 1}/{retries})"
+            )
+            await asyncio.sleep(delay)
+            continue
+
+        except MessageNotModified:
+            logger.warning("Attempted to edit message with the same content. Skipping.")
+            return None
+
+        except UserIsBlocked:
+            # 🔑 MAIN FIX: yahan crash nahi karna
+            logger.warning("User blocked the bot. Skipping this action.")
+            return None
+
+        except Exception as e:
+            # 🔑 MAIN FIX: yahan raise nahi karna
+            logger.error(f"Non-fatal error in execute_with_retry: {e}", exc_info=True)
+            self.is_healthy.clear()
+            return None
+
+    # retries exhaust hone ke baad bhi crash nahi
+    logger.error(f"Failed to execute action after {retries} retries. Giving up safely.")
+    self.is_healthy.clear()
+    return None
 
     async def _generate_dashboard_text(self, collection_data, status_text):
         header = collection_data.get('header', '')
