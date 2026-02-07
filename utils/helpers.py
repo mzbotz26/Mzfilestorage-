@@ -345,7 +345,7 @@ async def clean_and_parse_filename(name: str, cache: dict = None):
         # --- DECREED MODIFICATION: END ---
     }
 
-# ---------------- CREATE POST (ONLY FORMAT MODIFIED) ----------------
+# ---------------- CREATE POST (FINAL FIXED VERSION) ----------------
 
 async def create_post(client, user_id, messages, cache: dict):
     user = await get_user(user_id)
@@ -353,7 +353,10 @@ async def create_post(client, user_id, messages, cache: dict):
         return []
 
     media_info_list = []
-    parse_tasks = [clean_and_parse_filename(getattr(m, m.media.value).file_name, cache) for m in messages]
+    parse_tasks = [
+        clean_and_parse_filename(getattr(m, m.media.value).file_name, cache)
+        for m in messages
+    ]
     parsed_results = await asyncio.gather(*parse_tasks)
 
     for i, info in enumerate(parsed_results):
@@ -364,30 +367,51 @@ async def create_post(client, user_id, messages, cache: dict):
 
     media_info_list.sort(key=lambda x: natural_sort_key(x.get('quality_tags', '')))
     first_info = media_info_list[0]
-    primary_display_title = first_info['display_title']
 
-    genres, rating, story = await get_movie_extra(primary_display_title, first_info.get("year"))
+    # ================= TITLE HANDLING =================
+
+    primary_display_title = first_info['display_title']   # For caption (UNCHANGED)
+
+    # 🔥 MAIN FIX: Clean title for IMDb / TMDB only
+    clean_title_for_api = re.sub(r'\(\d{4}\)', '', primary_display_title).strip()
+
+    # ================= EXTRA MOVIE INFO =================
+
+    genres, rating, story = await get_movie_extra(
+        clean_title_for_api,
+        first_info.get("year")
+    )
+
+    # ================= POSTER =================
 
     poster_search_query = first_info['batch_title']
-    post_poster = await get_poster(poster_search_query, first_info['year']) if user.get('show_poster', True) else None
+    post_poster = (
+        await get_poster(poster_search_query, first_info['year'])
+        if user.get('show_poster', True)
+        else None
+    )
 
     CAPTION_LIMIT = PHOTO_CAPTION_LIMIT if post_poster else TEXT_MESSAGE_LIMIT
+
+    # ================= FILE LINKS =================
 
     all_link_entries = []
     for info in media_info_list:
         owner_id = user_id
         file_unique_id = info['file_unique_id']
         bot_username = client.me.username
+
         deep_link = f"https://t.me/{bot_username}?start=get_{owner_id}_{file_unique_id}"
-        link = deep_link
 
         file_size_str = format_bytes(info['file_size'])
         display_tags = info.get("quality_tags") or "File"
 
         all_link_entries.append(
             f"📁 ➤ {display_tags}\n"
-            f"📥 ➪ [Get File]({link}) ({file_size_str})"
+            f"📥 ➪ [Get File]({deep_link}) ({file_size_str})"
         )
+
+    # ================= BASE CAPTION =================
 
     base_caption = (
         f"🔖 **Title:** {primary_display_title}\n"
@@ -396,12 +420,20 @@ async def create_post(client, user_id, messages, cache: dict):
         f"📕 **Story:** {story or 'N/A'}\n\n"
     )
 
-    final_posts, current_links_part = [], []
+    # ================= SPLIT LOGIC =================
+
+    final_posts = []
+    current_links_part = []
     current_length = len(base_caption)
 
     for entry in all_link_entries:
         if current_length + len(entry) + 2 > CAPTION_LIMIT and current_links_part:
-            final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/mzbotz)**\n🎬 **[How To Download](" + Config.TUTORIAL_URL + ")**"
+            final_caption = (
+                base_caption
+                + "\n\n".join(current_links_part)
+                + f"\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
+                + f"\n🎬 **[How To Download]({Config.TUTORIAL_URL})**"
+            )
             final_posts.append((post_poster if not final_posts else None, final_caption, None))
             current_links_part = [entry]
             current_length = len(base_caption) + len(entry)
@@ -410,7 +442,12 @@ async def create_post(client, user_id, messages, cache: dict):
             current_length += len(entry)
 
     if current_links_part:
-        final_caption = base_caption + "\n\n".join(current_links_part) + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**\n🎬 **[How To Download](" + Config.TUTORIAL_URL + ")**"
+        final_caption = (
+            base_caption
+            + "\n\n".join(current_links_part)
+            + f"\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
+            + f"\n🎬 **[How To Download]({Config.TUTORIAL_URL})**"
+        )
         final_posts.append((post_poster if not final_posts else None, final_caption, None))
 
     return final_posts
