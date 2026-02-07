@@ -327,15 +327,15 @@ async def clean_and_parse_filename(name: str, cache: dict = None):
     if not cleaned_title:
         cleaned_title = " ".join(original_name.split('.')[:-1])
 
-# ---------- IMDb SAFE TITLE (FOR API ONLY) ----------
+    # ---------- IMDb SAFE TITLE (FOR API ONLY) ----------
     imdb_safe_title = re.sub(
         r'\b(HDTC|HDCAM|CAM|PRE[- ]?DVD|DVDSCR|WEB[- ]?DL|WEB[- ]?RIP|HDRIP|BLURAY|BRRIP)\b',
-    '',
-    cleaned_title,
-    flags=re.IGNORECASE
-).strip()
+        '',
+        cleaned_title,
+        flags=re.IGNORECASE
+    ).strip()
 
-# ✅ IMDb lookup MUST use imdb_safe_title
+    # ✅ IMDb lookup MUST use imdb_safe_title
     definitive_title, definitive_year = await get_definitive_title_from_imdb(imdb_safe_title)
     
     final_title = definitive_title if definitive_title else cleaned_title.title()
