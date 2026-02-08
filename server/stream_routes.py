@@ -5,7 +5,7 @@ from aiohttp import web
 from aiohttp.client_exceptions import ClientConnectionResetError
 from util.render_template import render_player_page
 from util.custom_dl import ByteStreamer
-from util.file_properties import get_media_from_message # Import helper
+from util.file_properties import get_media_from_message
 from pyrogram.errors import RPCError
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,7 @@ async def root_route_handler(request):
         "bot_status": "connected"
     })
 
+
 @routes.get("/favicon.ico", allow_head=True)
 async def favicon_handler(request):
     return web.Response(status=204)
@@ -27,98 +28,125 @@ async def favicon_handler(request):
 @routes.get("/watch/{message_id}", allow_head=True)
 async def watch_handler(request):
     try:
-        message_id = int(request.match_info['message_id'])
-        bot = request.app['bot']
+        message_id = int(request.match_info["message_id"])
+        bot = request.app["bot"]
+
         content = await render_player_page(bot, message_id)
-        return web.Response(text=content, content_type="text/html")
+        return web.Response(
+            text=content,
+            content_type="text/html"
+        )
+
     except Exception as e:
         logger.error(f"Error in watch_handler: {e}", exc_info=True)
-        return web.Response(text="<h1>500 - Internal Server Error</h1><p>Could not render the page.</p>", content_type="text/html", status=500)
+        return web.Response(
+            text="<h1>500 - Internal Server Error</h1><p>Could not render the page.</p>",
+            content_type="text/html",
+            status=500
+        )
 
-# --- LEGENDARY MODIFICATION: Refactored to use Message object ---
+
+# ================= STREAM =================
+
 @routes.get(r"/stream/{message_id:\d+}")
 async def stream_handler(request):
+    bot = request.app["bot"]
+
     try:
-        message_id = int(request.match_info['message_id'])
-        bot = request.app['bot']
+        message_id = int(request.match_info["message_id"])
         streamer = ByteStreamer(bot)
-        
-        # 1. Fetch the full message object
+
+        # 1️⃣ Fetch message safely
         message = await streamer.get_file_properties(message_id)
+        if not message:
+            return web.Response(status=404, text="File not found or expired.")
+
         media = get_media_from_message(message)
-        
+        if not media:
+            return web.Response(status=404, text="Media not available.")
+
         file_size = media.file_size
-        file_name = media.file_name
+        file_name = media.file_name or "file"
 
         res = web.StreamResponse(
             headers={
-                "Content-Type": media.mime_type,
+                "Content-Type": media.mime_type or "application/octet-stream",
                 "Content-Length": str(file_size),
                 "Accept-Ranges": "bytes",
-                "Content-Range": f"bytes 0-{file_size-1}/{file_size}",
                 "Content-Disposition": f'inline; filename="{file_name}"'
             }
         )
         await res.prepare(request)
 
-        # 2. Pass the message object directly to stream_media
-        async for chunk in bot.stream_media(message, limit=1024*1024):
-            # --- LEGENDARY FIX v2.0: The Unbreakable Shield ---
-            # This now catches ALL known disconnection errors for 100% stability.
+        async for chunk in bot.stream_media(message, limit=1024 * 1024):
             try:
                 await res.write(chunk)
-            except (ClientConnectionResetError, ConnectionResetError, BrokenPipeError, ConnectionError):
-                logger.warning(f"Client disconnected for stream of message_id {message_id}.")
-                # Stop sending data and exit cleanly
+            except (
+                ClientConnectionResetError,
+                ConnectionResetError,
+                BrokenPipeError,
+                ConnectionError
+            ):
+                logger.info(f"Client disconnected (stream) for message_id {message_id}")
                 break
-        
+
         return res
 
     except RPCError as e:
         logger.error(f"Telegram RPCError in stream_handler: {e}", exc_info=True)
         return web.Response(status=404, text="File not accessible on Telegram.")
+
     except Exception as e:
-        # This will no longer catch the handled connection errors
         logger.error(f"Error in stream_handler: {e}", exc_info=True)
         return web.Response(status=500, text="Internal server error.")
 
+
+# ================= DOWNLOAD =================
+
 @routes.get(r"/download/{message_id:\d+}")
 async def download_handler(request):
+    bot = request.app["bot"]
+
     try:
-        message_id = int(request.match_info['message_id'])
-        bot = request.app['bot']
+        message_id = int(request.match_info["message_id"])
         streamer = ByteStreamer(bot)
-        
-        # 1. Fetch the full message object
+
+        # 1️⃣ Fetch message safely
         message = await streamer.get_file_properties(message_id)
+        if not message:
+            return web.Response(status=404, text="File not found or expired.")
+
         media = get_media_from_message(message)
+        if not media:
+            return web.Response(status=404, text="Media not available.")
 
         res = web.StreamResponse(
             headers={
                 "Content-Type": "application/octet-stream",
                 "Content-Length": str(media.file_size),
-                "Content-Disposition": f'attachment; filename="{media.file_name}"'
+                "Content-Disposition": f'attachment; filename="{media.file_name or "file"}"'
             }
         )
         await res.prepare(request)
-        
-        # 2. Pass the message object directly to stream_media
-        async for chunk in bot.stream_media(message, limit=1024*1024):
-            # --- LEGENDARY FIX v2.0: The Unbreakable Shield ---
-            # This now catches ALL known disconnection errors for 100% stability.
+
+        async for chunk in bot.stream_media(message, limit=1024 * 1024):
             try:
                 await res.write(chunk)
-            except (ClientConnectionResetError, ConnectionResetError, BrokenPipeError, ConnectionError):
-                logger.warning(f"Client disconnected for download of message_id {message_id}.")
-                # Stop sending data and exit cleanly
+            except (
+                ClientConnectionResetError,
+                ConnectionResetError,
+                BrokenPipeError,
+                ConnectionError
+            ):
+                logger.info(f"Client disconnected (download) for message_id {message_id}")
                 break
 
         return res
-        
+
     except RPCError as e:
         logger.error(f"Telegram RPCError in download_handler: {e}", exc_info=True)
         return web.Response(status=404, text="File not accessible on Telegram.")
+
     except Exception as e:
-        # This will no longer catch the handled connection errors
         logger.error(f"Error in download_handler: {e}", exc_info=True)
         return web.Response(status=500, text="Internal server error.")
