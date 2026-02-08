@@ -444,71 +444,95 @@ class Bot(Client):
 
 
     async def connection_health_check(self):
-        logger.info("✅ Bot health monitor started.")
-        while True:
-            await asyncio.sleep(120)
-            if not self.owner_db_channel: continue
+    logger.info("✅ Bot health monitor started.")
 
+    while True:
+        # ⏳ Telegram ke liye safe interval
+        await asyncio.sleep(300)  # 5 minutes
+
+        if not self.owner_db_channel:
+            continue
+
+        is_currently_ok = False
+        error_details = ""
+
+        try:
+            # 🔥 ONLY warm-up (no message send)
+            await self.get_chat(int(self.owner_db_channel))
+            is_currently_ok = True
+            self.last_health_check_error = ""
+
+        except PeerIdInvalid as e:
+            # ❗ Telegram cache issue — NORMAL
+            logger.warning(f"Health check PeerIdInvalid ignored: {e}")
+            is_currently_ok = True
+
+        except ChannelInvalid as e:
+            # ❗ Temporary channel glitch
+            logger.warning(f"Health check ChannelInvalid ignored: {e}")
+            is_currently_ok = True
+
+        except Exception as e:
+            error_details = f"Health Check FAILED. Error: {e}"
+            logger.error(error_details)
             is_currently_ok = False
-            error_details = ""
-            try:
-                await self.get_chat(self.owner_db_channel)
-                is_currently_ok = True
-                self.last_health_check_error = ""
-            except Exception as e:
-                error_details = f"Health Check FAILED. Error: {e}"
-                logger.error(error_details)
-                is_currently_ok = False
-                self.last_health_check_error = str(e)
+            self.last_health_check_error = str(e)
 
-            if is_currently_ok:
-                if not self.is_healthy.is_set():
-                    logger.info("✅ HEALTH CHECK PASSED: Connection and permissions in Owner DB Channel are restored.")
-                    self.is_healthy.set()
-                self.last_health_check_status = True
-            else:
-                if self.is_healthy.is_set():
-                    logger.critical("🚨 BOT UNHEALTHY: Pausing file processing due to DB channel failure.")
-                    self.is_healthy.clear()
-                    try:
-                        await self.send_message(Config.ADMIN_ID,
-                            f"**🚨 BOT CRITICAL ERROR**\n\n"
-                            f"I can no longer operate in the Owner DB Channel (`{self.owner_db_channel}`). File processing is **paused**.\n\n"
-                            f"**Reason:** `{error_details}`\n\n"
-                            "I will try to recover automatically. Please check my admin rights in the channel and the server's network."
-                        )
-                    except Exception as e:
-                        logger.error(f"Could not send critical alert to admin: {e}")
-                self.last_health_check_status = False
+        # ---------- STATE MANAGEMENT ----------
+        if is_currently_ok:
+            if not self.is_healthy.is_set():
+                logger.info("✅ HEALTH RESTORED: Bot is operational again.")
+                self.is_healthy.set()
+            self.last_health_check_status = True
+
+        else:
+            if self.is_healthy.is_set():
+                logger.critical("🚨 BOT UNHEALTHY: Pausing processing due to DB channel failure.")
+                self.is_healthy.clear()
+                try:
+                    await self.send_message(
+                        Config.ADMIN_ID,
+                        f"🚨 **BOT HEALTH WARNING**\n\n"
+                        f"Owner DB Channel (`{self.owner_db_channel}`) is temporarily unreachable.\n\n"
+                        f"**Reason:** `{error_details}`\n\n"
+                        "The bot will auto-recover once Telegram connectivity is restored."
+                    )
+                except Exception as e:
+                    logger.error(f"Could not notify admin about health issue: {e}")
+
+            self.last_health_check_status = False
 
     async def start(self):
-        await super().start()
-        self.me = await self.get_me()
-        
-        # --- LEGENDARY FIX: Removed invalid session hydration for bots ---
-        # This block caused the BOT_METHOD_INVALID error and is not needed.
-        # logger.info("Hydrating session...")
-        # try:
-        #     async for _ in self.get_dialogs(): pass
-        #     logger.info("Session hydration complete.")
-        # except Exception as e: logger.error(f"Could not hydrate session: {e}")
+    await super().start()
+    self.me = await self.get_me()
 
-        if self.owner_db_channel:
-            try:
-                logger.info(f"Initial health check for Owner DB [{self.owner_db_channel}]...")
-                await self.send_message(self.owner_db_channel, f"✅ **Bot Online & Connected**\n\n@{self.me.username} has started successfully.")
-                self.is_healthy.set()
-            except Exception as e:
-                logger.error(f"FATAL: Could not verify Owner DB Channel on startup. Error: {e}")
-                self.is_healthy.clear()
-        else:
-            logger.warning("Owner DB ID not set. Critical functionalities will fail.")
-        
-        await self.start_web_server()
-        asyncio.create_task(self.daily_restart_handler())
-        asyncio.create_task(self.connection_health_check())
-        asyncio.create_task(self.daily_stats_notifier())
-        logger.info(f"Bot @{self.me.username} started successfully with direct processing architecture.")
+    logger.info(f"🤖 Logged in as @{self.me.username}")
+
+    # --- SAFE warm-up for Owner DB Channel ---
+    if self.owner_db_channel:
+        try:
+            logger.info(f"Performing safe DB channel warm-up [{self.owner_db_channel}]...")
+            await self.get_chat(int(self.owner_db_channel))  # 🔥 NO send_message
+            self.is_healthy.set()
+            logger.info("✅ Owner DB channel warm-up successful.")
+        except Exception as e:
+            # ❗ Do NOT block bot on startup
+            logger.error(f"Owner DB warm-up failed (non-fatal): {e}")
+            self.is_healthy.set()
+    else:
+        logger.warning("⚠️ Owner DB Channel ID not set.")
+
+    # --- Web server ---
+    await self.start_web_server()
+
+    # --- Background tasks ---
+    asyncio.create_task(self.connection_health_check())
+    asyncio.create_task(self.daily_stats_notifier())
+
+    # ❌ Daily restart disabled (Koyeb handles restarts)
+    # asyncio.create_task(self.daily_restart_handler())
+
+    logger.info(f"🚀 Bot @{self.me.username} started successfully.")
 
     async def stop(self, *args):
         logger.info("Stopping bot...")
