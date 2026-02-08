@@ -118,11 +118,9 @@ class Bot(Client):
 
             except Exception as e:
                 logger.error(f"Non-fatal error in execute_with_retry: {e}", exc_info=True)
-                self.is_healthy.clear()
                 return None
 
         logger.error(f"Failed to execute action after {retries} retries. Giving up safely.")
-        self.is_healthy.clear()
         return None
 
     async def _generate_dashboard_text(self, collection_data, status_text):
