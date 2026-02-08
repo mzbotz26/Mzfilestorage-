@@ -166,12 +166,22 @@ async def handle_public_file_request(client, message, requester_id, payload):
     if not file_data:
         return await message.reply_text("❌ Invalid or expired link.")
 
-    # ---------- FSUB ----------
-    fsub_channel = owner_settings.get("fsub_channel") if owner_settings else None
-    if fsub_channel:
+    # ---------- FSUB (DB BASED + PERMANENT FIX) ----------
+fsub_channel = owner_settings.get("fsub_channel") if owner_settings else None
+
+if fsub_channel:
+    try:
+        # 🔑 Clean & force int (DB values safe)
+        fsub_channel = int(str(fsub_channel).strip())
+
+        # 🔥 WARM UP Telegram peer (THIS FIXES DAILY ISSUE)
+        await client.get_chat(fsub_channel)
+
+        # ✅ Check membership
+        await client.get_chat_member(fsub_channel, requester_id)
+
+    except UserNotParticipant:
         try:
-            await client.get_chat_member(fsub_channel, requester_id)
-        except UserNotParticipant:
             invite = await client.export_chat_invite_link(fsub_channel)
             return await message.reply_text(
                 "📢 Join channel first:",
@@ -180,8 +190,14 @@ async def handle_public_file_request(client, message, requester_id, payload):
                     [InlineKeyboardButton("Retry", callback_data=f"retry_{payload}")]
                 ])
             )
+        except Exception as e:
+            logger.error(f"FSUB invite error: {e}")
+            return
 
-    await send_file(client, requester_id, owner_id, file_unique_id)
+    except Exception as e:
+        # 🚫 Prevent daily PeerIdInvalid spam
+        logger.error(f"FSUB channel invalid/unreachable: {e}")
+        return
 
 
 # ================= SEND FILE =================
