@@ -538,11 +538,5 @@ class Bot(Client):
         logger.info("Bot stopped.")
 
 if __name__ == "__main__":
-    import asyncio
-
-    async def main():
-        bot = Bot()
-        await bot.start()
-        await asyncio.Event().wait()
-
-    asyncio.run(main())
+    bot = Bot()
+    bot.run()
