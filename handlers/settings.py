@@ -167,42 +167,49 @@ async def get_poster_menu_parts(user_id):
 
 async def get_fsub_menu_parts(client, user_id):
     user = await get_user(user_id)
-    if not user: await add_user(user_id); user = await get_user(user_id)
-    
+    if not user:
+        await add_user(user_id)
+        user = await get_user(user_id)
+
     fsub_ch = user.get('fsub_channel')
     text = "**📢 FSub Settings**\n\n"
+
     if fsub_ch:
-    try:
-        # 🔑 HARD FIX: warm up Telegram peer cache
-        fsub_ch = int(str(fsub_ch).strip())
-        await client.get_chat(fsub_ch)
+        try:
+            # 🔑 Force clean int
+            fsub_ch = int(str(fsub_ch).strip())
 
-    except Exception as e:
-        logger.error(f"Invalid FSub channel cached in DB: {e}")
-        await update_user(user_id, "fsub_channel", None)
-        text += "⚠️ Saved FSub channel was invalid and has been removed."
-        buttons = [
-            [InlineKeyboardButton("✏️ Set/Change FSub", callback_data="set_fsub")],
-            [go_back_button(user_id).inline_keyboard[0][0]]
-        ]
-        return text, InlineKeyboardMarkup(buttons)
+            # 🔥 VERY IMPORTANT: warm up peer
+            await client.get_chat(fsub_ch)
 
-    # now safe to validate
-    is_valid = await notify_and_remove_invalid_channel(client, user_id, fsub_ch, "FSub")
-        if is_valid:
-            try:
-                chat = await client.get_chat(fsub_ch)
-                text += f"Current FSub Channel: **{chat.title}** (`{fsub_ch}`)"
-            except:
-                text += f"Current FSub Channel ID: `{fsub_ch}`"
+            # ✅ validate & auto-clean if invalid
+            is_valid = await notify_and_remove_invalid_channel(
+                client, user_id, fsub_ch, "FSub"
+            )
+
+            if is_valid:
+                try:
+                    chat = await client.get_chat(fsub_ch)
+                    text += f"Current FSub Channel: **{chat.title}** (`{fsub_ch}`)"
+                except:
+                    text += f"Current FSub Channel ID: `{fsub_ch}`"
+
+        except Exception as e:
+            logger.error(f"Invalid FSub channel cached in DB: {e}")
+            await update_user(user_id, "fsub_channel", None)
+            text += "⚠️ Saved FSub channel was invalid and has been removed."
+
     else:
         text += "No FSub channel is set."
+
     buttons = [
-        [InlineKeyboardButton("✏️ Set/Change FSub", callback_data="set_fsub")],
+        [InlineKeyboardButton("✏️ Set/Change FSub", callback_data="set_fsub")]
     ]
     if fsub_ch:
         buttons.append([InlineKeyboardButton("🗑️ Remove FSub", callback_data="remove_fsub")])
+
     buttons.append([go_back_button(user_id).inline_keyboard[0][0]])
+
     return text, InlineKeyboardMarkup(buttons)
 
 
