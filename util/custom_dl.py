@@ -28,7 +28,7 @@ class ByteStreamer:
             return await get_message_with_properties(self.client, message_id)
         except (ValueError, FileIdError) as e:
             logger.error(f"Failed to get file properties for message_id {message_id}: {e}")
-            raise
+            return None
 
     async def generate_media_session(self, client: Client, dc_id: int):
         session = client.media_sessions.get(dc_id)
