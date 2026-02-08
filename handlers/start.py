@@ -166,22 +166,21 @@ async def handle_public_file_request(client, message, requester_id, payload):
     if not file_data:
         return await message.reply_text("❌ Invalid or expired link.")
 
-    # ---------- FSUB (DB BASED + PERMANENT FIX) ----------
-fsub_channel = owner_settings.get("fsub_channel") if owner_settings else None
+# ---------- FSUB (DB BASED + PERMANENT FIX) ----------
+    fsub_channel = owner_settings.get("fsub_channel") if owner_settings else None
 
-if fsub_channel:
-    try:
-        # 🔑 Clean & force int (DB values safe)
-        fsub_channel = int(str(fsub_channel).strip())
-
-        # 🔥 WARM UP Telegram peer (THIS FIXES DAILY ISSUE)
-        await client.get_chat(fsub_channel)
-
-        # ✅ Check membership
-        await client.get_chat_member(fsub_channel, requester_id)
-
-    except UserNotParticipant:
+    if fsub_channel:
         try:
+            # 🔑 Clean & force int
+            fsub_channel = int(str(fsub_channel).strip())
+
+            # 🔥 WARM UP peer (VERY IMPORTANT)
+            await client.get_chat(fsub_channel)
+
+            # ✅ Membership check
+            await client.get_chat_member(fsub_channel, requester_id)
+
+        except UserNotParticipant:
             invite = await client.export_chat_invite_link(fsub_channel)
             return await message.reply_text(
                 "📢 Join channel first:",
@@ -190,14 +189,16 @@ if fsub_channel:
                     [InlineKeyboardButton("Retry", callback_data=f"retry_{payload}")]
                 ])
             )
-        except Exception as e:
-            logger.error(f"FSUB invite error: {e}")
-            return
 
-    except Exception as e:
-        # 🚫 Prevent daily PeerIdInvalid spam
-        logger.error(f"FSUB channel invalid/unreachable: {e}")
-        return
+        except Exception as e:
+            logger.error(f"FSUB channel invalid/unreachable: {e}")
+            return await message.reply_text(
+                "❌ FSub channel is invalid or bot has no access.\n"
+                "Please ask owner to re-set it from settings."
+            )
+
+    # ✅ VERY IMPORTANT: send file AFTER fsub
+    await send_file(client, requester_id, owner_id, file_unique_id)
 
 
 # ================= SEND FILE =================
