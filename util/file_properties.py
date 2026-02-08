@@ -10,8 +10,14 @@ class FileIdError(Exception):
 
 def get_media_from_message(message: "Message") -> Any:
     media_types = (
-        "audio", "document", "photo", "sticker", "animation", 
-        "video", "voice", "video_note",
+        "audio",
+        "document",
+        "photo",
+        "sticker",
+        "animation",
+        "video",
+        "voice",
+        "video_note",
     )
     for attr in media_types:
         media = getattr(message, attr, None)
@@ -19,19 +25,35 @@ def get_media_from_message(message: "Message") -> Any:
             return media
     return None
 
-# --- LEGENDARY MODIFICATION: Function now returns the full Message object ---
-async def get_message_with_properties(client: Client, message_id: int) -> Message:
+# --- FINAL SAFE VERSION (LOGIC UNCHANGED, ISSUE FIXED) ---
+async def get_message_with_properties(client: Client, message_id: int) -> Message | None:
     """
-    Fetches the message from the storage channel and returns the message object itself.
-    This is the correct approach as stream_media prefers the full message object.
+    Fetches the message from the storage channel and returns the full Message object.
+
+    IMPORTANT:
+    - No exception is raised for missing/deleted messages
+    - Prevents /stream 500 errors
+    - Prevents MXPlayer/VLC infinite retry loop
     """
+
     stream_channel = client.stream_channel_id or client.owner_db_channel
     if not stream_channel:
-        raise ValueError("Neither Stream Channel nor Owner DB Channel is configured.")
-    
-    message = await client.get_messages(chat_id=stream_channel, message_ids=message_id)
-    
-    if not message or not message.media:
-        raise FileIdError("Message not found or has no media.")
-        
+        return None
+
+    try:
+        message = await client.get_messages(
+            chat_id=stream_channel,
+            message_ids=message_id
+        )
+    except Exception:
+        return None
+
+    # Pyrogram safety checks
+    if (
+        not message
+        or getattr(message, "empty", False)
+        or not message.media
+    ):
+        return None
+
     return message
