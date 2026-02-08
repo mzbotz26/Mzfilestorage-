@@ -172,7 +172,23 @@ async def get_fsub_menu_parts(client, user_id):
     fsub_ch = user.get('fsub_channel')
     text = "**📢 FSub Settings**\n\n"
     if fsub_ch:
-        is_valid = await notify_and_remove_invalid_channel(client, user_id, fsub_ch, "FSub")
+    try:
+        # 🔑 HARD FIX: warm up Telegram peer cache
+        fsub_ch = int(str(fsub_ch).strip())
+        await client.get_chat(fsub_ch)
+
+    except Exception as e:
+        logger.error(f"Invalid FSub channel cached in DB: {e}")
+        await update_user(user_id, "fsub_channel", None)
+        text += "⚠️ Saved FSub channel was invalid and has been removed."
+        buttons = [
+            [InlineKeyboardButton("✏️ Set/Change FSub", callback_data="set_fsub")],
+            [go_back_button(user_id).inline_keyboard[0][0]]
+        ]
+        return text, InlineKeyboardMarkup(buttons)
+
+    # now safe to validate
+    is_valid = await notify_and_remove_invalid_channel(client, user_id, fsub_ch, "FSub")
         if is_valid:
             try:
                 chat = await client.get_chat(fsub_ch)
