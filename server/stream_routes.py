@@ -56,49 +56,63 @@ async def stream_handler(request):
         message_id = int(request.match_info["message_id"])
         streamer = ByteStreamer(bot)
 
-        # 1️⃣ Fetch message safely
         message = await streamer.get_file_properties(message_id)
         if not message:
-            return web.Response(status=404, text="File not found or expired.")
+            return web.Response(status=404, text="File not found.")
 
         media = get_media_from_message(message)
         if not media:
             return web.Response(status=404, text="Media not available.")
 
         file_size = media.file_size
-        file_name = media.file_name or "file"
+        file_name = media.file_name or "video.mp4"
+        range_header = request.headers.get("Range")
 
-        res = web.StreamResponse(
-            headers={
-                "Content-Type": media.mime_type or "application/octet-stream",
-                "Content-Length": str(file_size),
-                "Accept-Ranges": "bytes",
-                "Content-Disposition": f'inline; filename="{file_name}"'
-            }
-        )
-        await res.prepare(request)
+        start = 0
+        end = file_size - 1
+        status = 200
 
-        async for chunk in bot.stream_media(message, limit=1024 * 1024):
+        if range_header:
+            status = 206
+            bytes_range = range_header.replace("bytes=", "").split("-")
+            start = int(bytes_range[0])
+            if len(bytes_range) > 1 and bytes_range[1]:
+                end = int(bytes_range[1])
+
+        headers = {
+            "Content-Type": media.mime_type or "video/mp4",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(end - start + 1),
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Disposition": f'inline; filename="{file_name}"'
+        }
+
+        resp = web.StreamResponse(status=status, headers=headers)
+        await resp.prepare(request)
+
+        async for chunk in bot.stream_media(
+            message,
+            offset=start,
+            limit=1024 * 1024
+        ):
             try:
-                await res.write(chunk)
+                await resp.write(chunk)
             except (
                 ClientConnectionResetError,
                 ConnectionResetError,
                 BrokenPipeError,
                 ConnectionError
             ):
-                logger.info(f"Client disconnected (stream) for message_id {message_id}")
                 break
 
-        return res
+        return resp
 
-    except RPCError as e:
-        logger.error(f"Telegram RPCError in stream_handler: {e}", exc_info=True)
-        return web.Response(status=404, text="File not accessible on Telegram.")
+    except RPCError:
+        return web.Response(status=404, text="Telegram file inaccessible.")
 
     except Exception as e:
-        logger.error(f"Error in stream_handler: {e}", exc_info=True)
-        return web.Response(status=500, text="Internal server error.")
+        logger.exception("Stream error")
+        return web.Response(status=500, text="Stream failed.")
 
 
 # ================= DOWNLOAD =================
