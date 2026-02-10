@@ -417,101 +417,116 @@ async def create_post(client, user_id, messages, cache: dict):
         return []
 
     media_info_list = []
+
     parse_tasks = [
         clean_and_parse_filename(getattr(m, m.media.value).file_name, cache)
         for m in messages
+        if getattr(m, m.media.value, None)
     ]
     parsed_results = await asyncio.gather(*parse_tasks)
 
     for i, info in enumerate(parsed_results):
+        if not info:
+            continue
         media = getattr(messages[i], messages[i].media.value)
-        info['file_size'] = media.file_size
-        info['file_unique_id'] = media.file_unique_id
+        info["file_size"] = media.file_size
+        info["file_unique_id"] = media.file_unique_id
         media_info_list.append(info)
 
-    media_info_list.sort(key=lambda x: natural_sort_key(x.get('quality_tags', '')))
+    if not media_info_list:
+        return []
+
+    # Sort by quality (480p → 720p → 1080p)
+    media_info_list.sort(key=lambda x: natural_sort_key(x.get("quality_tags", "")))
     first_info = media_info_list[0]
 
-    # ================= TITLE HANDLING =================
+    # ================= TITLE =================
+    primary_display_title = first_info["display_title"]
 
-    primary_display_title = first_info['display_title']   # For caption (UNCHANGED)
+    # Clean title only for APIs
+    clean_title_for_api = re.sub(r"\(\d{4}\)", "", primary_display_title).strip()
 
-    # 🔥 MAIN FIX: Clean title for IMDb / TMDB only
-    clean_title_for_api = re.sub(r'\(\d{4}\)', '', primary_display_title).strip()
-
-    # ================= EXTRA MOVIE INFO =================
-
+    # ================= EXTRA INFO =================
     genres, rating, story = await get_movie_extra(
-    clean_title_for_api,
-    first_info.get("year"),
-    is_series=first_info.get("is_series")
-)
+        clean_title_for_api,
+        first_info.get("year"),
+        is_series=first_info.get("is_series")
+    )
 
     # ================= POSTER =================
-
-    poster_search_query = first_info['batch_title']
-    post_poster = (
-        await get_poster(poster_search_query, first_info['year'])
-        if user.get('show_poster', True)
+    poster = (
+        await get_poster(first_info["batch_title"], first_info["year"])
+        if user.get("show_poster", True)
         else None
     )
 
-    CAPTION_LIMIT = PHOTO_CAPTION_LIMIT if post_poster else TEXT_MESSAGE_LIMIT
+    CAPTION_LIMIT = PHOTO_CAPTION_LIMIT if poster else TEXT_MESSAGE_LIMIT
 
     # ================= FILE LINKS =================
+    all_entries = []
 
-    all_link_entries = []
     for info in media_info_list:
+        parts = []
+
+        # 🔥 LANGUAGE (Hindi / Hindi + English / Multi-Audio)
+        languages = info.get("languages", [])
+        if languages:
+            parts.append(" + ".join(languages))
+
+        # 🔥 QUALITY (480p WEB-DL etc.)
+        if info.get("quality_tags"):
+            parts.append(info["quality_tags"].replace("|", "").strip())
+
+        display_line = " ".join(parts).strip() or "File"
+
         owner_id = user_id
-        file_unique_id = info['file_unique_id']
+        file_unique_id = info["file_unique_id"]
         bot_username = client.me.username
 
         deep_link = f"https://t.me/{bot_username}?start=get_{owner_id}_{file_unique_id}"
+        short_link = await get_shortlink(deep_link, owner_id)
 
-        file_size_str = format_bytes(info['file_size'])
-        display_tags = info.get("quality_tags") or "File"
+        size_text = format_bytes(info["file_size"])
 
-        all_link_entries.append(
-            f"📁 ➤ {display_tags}\n"
-            f"📥 ➪ [Get File]({deep_link}) ({file_size_str})"
+        all_entries.append(
+            f"📁 **{display_line}**\n"
+            f"📥 [Get File]({short_link}) ({size_text})"
         )
 
     # ================= BASE CAPTION =================
-
     base_caption = (
-        f"🔖 **Title:** {primary_display_title}\n"
-        f"🎬 **Genres:** {genres or 'N/A'}\n"
-        f"⭐️ **Rating:** {rating or 'N/A'}\n"
-        f"📕 **Story:** {story or 'N/A'}\n\n"
+        f"🎬 **{primary_display_title}**\n\n"
+        f"🎭 **Genres:** {genres or 'N/A'}\n"
+        f"⭐ **Rating:** {rating or 'N/A'}\n"
+        f"📖 **Story:** {story or 'N/A'}\n\n"
     )
 
-    # ================= SPLIT LOGIC =================
-
+    # ================= SPLIT HANDLING =================
     final_posts = []
-    current_links_part = []
-    current_length = len(base_caption)
+    current_block = []
+    current_len = len(base_caption)
 
-    for entry in all_link_entries:
-        if current_length + len(entry) + 2 > CAPTION_LIMIT and current_links_part:
-            final_caption = (
+    for entry in all_entries:
+        if current_len + len(entry) + 2 > CAPTION_LIMIT and current_block:
+            caption = (
                 base_caption
-                + "\n\n".join(current_links_part)
-                + f"\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
+                + "\n\n".join(current_block)
+                + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
             )
-            final_posts.append((post_poster if not final_posts else None, final_caption, None))
-            current_links_part = [entry]
-            current_length = len(base_caption) + len(entry)
+            final_posts.append((poster if not final_posts else None, caption, None))
+            current_block = [entry]
+            current_len = len(base_caption) + len(entry)
         else:
-            current_links_part.append(entry)
-            current_length += len(entry)
+            current_block.append(entry)
+            current_len += len(entry)
 
-    if current_links_part:
-        final_caption = (
+    if current_block:
+        caption = (
             base_caption
-            + "\n\n".join(current_links_part)
-            + f"\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
+            + "\n\n".join(current_block)
+            + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
         )
-        final_posts.append((post_poster if not final_posts else None, final_caption, None))
+        final_posts.append((poster if not final_posts else None, caption, None))
 
     return final_posts
 
