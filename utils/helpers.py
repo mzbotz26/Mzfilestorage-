@@ -418,6 +418,7 @@ async def create_post(client, user_id, messages, cache: dict):
 
     media_info_list = []
 
+    # ---------- PARSE FILES ----------
     parse_tasks = [
         clean_and_parse_filename(getattr(m, m.media.value).file_name, cache)
         for m in messages
@@ -436,24 +437,24 @@ async def create_post(client, user_id, messages, cache: dict):
     if not media_info_list:
         return []
 
-    # Sort by quality (480p → 720p → 1080p)
+    # ---------- SORT (480p → 720p → 1080p) ----------
     media_info_list.sort(key=lambda x: natural_sort_key(x.get("quality_tags", "")))
     first_info = media_info_list[0]
 
-    # ================= TITLE =================
+    # ---------- TITLE ----------
     primary_display_title = first_info["display_title"]
 
-    # Clean title only for APIs
+    # Clean title ONLY for APIs (logic unchanged)
     clean_title_for_api = re.sub(r"\(\d{4}\)", "", primary_display_title).strip()
 
-    # ================= EXTRA INFO =================
+    # ---------- EXTRA INFO ----------
     genres, rating, story = await get_movie_extra(
         clean_title_for_api,
         first_info.get("year"),
         is_series=first_info.get("is_series")
     )
 
-    # ================= POSTER =================
+    # ---------- POSTER ----------
     poster = (
         await get_poster(first_info["batch_title"], first_info["year"])
         if user.get("show_poster", True)
@@ -462,22 +463,22 @@ async def create_post(client, user_id, messages, cache: dict):
 
     CAPTION_LIMIT = PHOTO_CAPTION_LIMIT if poster else TEXT_MESSAGE_LIMIT
 
-    # ================= FILE LINKS =================
+    # ---------- FILE LINKS ----------
     all_entries = []
 
     for info in media_info_list:
-        parts = []
+        display_parts = []
 
-        # 🔥 LANGUAGE (Hindi / Hindi + English / Multi-Audio)
+        # 🔥 LANGUAGE FIRST (Hindi / Hindi + English / Multi-Audio)
         languages = info.get("languages", [])
         if languages:
-            parts.append(" + ".join(languages))
+            display_parts.append(" + ".join(languages))
 
-        # 🔥 QUALITY (480p WEB-DL etc.)
+        # 🔥 QUALITY NEXT (480p WEB-DL etc.)
         if info.get("quality_tags"):
-            parts.append(info["quality_tags"].replace("|", "").strip())
+            display_parts.append(info["quality_tags"].replace("|", "").strip())
 
-        display_line = " ".join(parts).strip() or "File"
+        display_line = " ".join(display_parts).strip() or "File"
 
         owner_id = user_id
         file_unique_id = info["file_unique_id"]
@@ -493,7 +494,7 @@ async def create_post(client, user_id, messages, cache: dict):
             f"📥 [Get File]({short_link}) ({size_text})"
         )
 
-    # ================= BASE CAPTION =================
+    # ---------- BASE CAPTION ----------
     base_caption = (
         f"🎬 **{primary_display_title}**\n\n"
         f"🎭 **Genres:** {genres or 'N/A'}\n"
@@ -501,7 +502,7 @@ async def create_post(client, user_id, messages, cache: dict):
         f"📖 **Story:** {story or 'N/A'}\n\n"
     )
 
-    # ================= SPLIT HANDLING =================
+    # ---------- SPLIT HANDLING ----------
     final_posts = []
     current_block = []
     current_len = len(base_caption)
