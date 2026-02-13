@@ -485,13 +485,12 @@ async def create_post(client, user_id, messages, cache: dict):
         bot_username = client.me.username
 
         deep_link = f"https://t.me/{bot_username}?start=get_{owner_id}_{file_unique_id}"
-        short_link = await get_shortlink(deep_link, owner_id)
 
         size_text = format_bytes(info["file_size"])
 
         all_entries.append(
             f"📁 **{display_line}**\n"
-            f"📥 [Get File]({short_link}) ({size_text})"
+            f"📥 [Get File]({deep_link}) ({size_text})"
         )
 
     # ---------- BASE CAPTION ----------
