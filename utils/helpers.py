@@ -564,6 +564,11 @@ async def create_post(client, user_id, messages, cache: dict):
         is_series=first_info.get("is_series")
     )
 
+    # ---------- STORY TRIM (Telegram Safe) ----------
+    MAX_STORY_LENGTH = 600  # Safe for 1024 caption limit
+    if story and len(story) > MAX_STORY_LENGTH:
+        story = story[:MAX_STORY_LENGTH].rsplit(" ", 1)[0] + "..."
+
     # ---------- POSTER ----------
     poster = (
         await get_poster(first_info["batch_title"], first_info["year"])
@@ -579,12 +584,12 @@ async def create_post(client, user_id, messages, cache: dict):
     for info in media_info_list:
         display_parts = []
 
-        # 🔥 LANGUAGE FIRST (Hindi / Hindi + English / Multi-Audio)
+        # 🔥 LANGUAGE FIRST
         languages = info.get("languages", [])
         if languages:
             display_parts.append(" + ".join(languages))
 
-        # 🔥 QUALITY NEXT (480p WEB-DL etc.)
+        # 🔥 QUALITY NEXT
         if info.get("quality_tags"):
             display_parts.append(info["quality_tags"].replace("|", "").strip())
 
@@ -623,6 +628,11 @@ async def create_post(client, user_id, messages, cache: dict):
                 + "\n\n".join(current_block)
                 + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
             )
+
+            # 🔐 FINAL SAFETY CHECK
+            if len(caption) > CAPTION_LIMIT:
+                caption = caption[:CAPTION_LIMIT - 3] + "..."
+
             final_posts.append((poster if not final_posts else None, caption, None))
             current_block = [entry]
             current_len = len(base_caption) + len(entry)
@@ -636,6 +646,11 @@ async def create_post(client, user_id, messages, cache: dict):
             + "\n\n".join(current_block)
             + "\n\n💪 **Powered By : [MzMoviiez](https://t.me/MzMoviiez)**"
         )
+
+        # 🔐 FINAL SAFETY CHECK
+        if len(caption) > CAPTION_LIMIT:
+            caption = caption[:CAPTION_LIMIT - 3] + "..."
+
         final_posts.append((poster if not final_posts else None, caption, None))
 
     return final_posts
