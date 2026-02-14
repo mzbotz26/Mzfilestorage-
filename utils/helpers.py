@@ -139,10 +139,8 @@ async def get_definitive_title_from_imdb(title_from_filename):
                     imdb_title = movie.get("title")
                     imdb_year = movie.get("year")
 
-                    if title_from_filename.lower() not in imdb_title.lower():
-                        result = (None, None)
-                    else:
-                        result = (imdb_title, imdb_year)
+                    # ✅ STRICT SUBSTRING CHECK REMOVED (Regional Fix)
+                    result = (imdb_title, imdb_year)
 
     except Exception as e:
         logger.error(f"IMDb error: {e}")
@@ -174,7 +172,7 @@ async def get_imdb_extra(title):
 
             await loop.run_in_executor(
                 None,
-                lambda: ia.update(movie)
+                lambda: ia.update(movie, info=["main", "plot"])
             )
 
             genres = ", ".join(movie.get("genres", []))
