@@ -114,33 +114,55 @@ async def get_definitive_title_from_imdb(title_from_filename):
 
             results = await loop.run_in_executor(
                 None,
-                lambda: ia.search_movie(title_from_filename, results=1)
+                lambda: ia.search_movie(title_from_filename, results=3)
             )
 
             if not results:
                 result = (None, None)
             else:
-                movie = results[0]
-                imdb_title_raw = movie.get("title", "")
 
-                similarity = fuzz.ratio(
-                    title_from_filename.lower().strip(),
-                    imdb_title_raw.lower().strip()
-                )
+                # Extract year from filename
+                year_match = re.search(r"\b(19|20)\d{2}\b", title_from_filename)
+                file_year = int(year_match.group()) if year_match else None
 
-                if similarity < 60:
+                # Remove year for similarity comparison
+                clean_search_title = re.sub(
+                    r"\b(19|20)\d{2}\b",
+                    "",
+                    title_from_filename
+                ).strip()
+
+                best_match = None
+                best_score = 0
+
+                for movie in results:
+                    imdb_title_raw = movie.get("title", "")
+
+                    similarity = fuzz.ratio(
+                        clean_search_title.lower(),
+                        imdb_title_raw.lower().strip()
+                    )
+
+                    if similarity > best_score:
+                        best_score = similarity
+                        best_match = movie
+
+                if not best_match or best_score < 60:
                     result = (None, None)
                 else:
                     await loop.run_in_executor(
                         None,
-                        lambda: ia.update(movie, info=["main"])
+                        lambda: ia.update(best_match, info=["main"])
                     )
 
-                    imdb_title = movie.get("title")
-                    imdb_year = movie.get("year")
+                    imdb_title = best_match.get("title")
+                    imdb_year = best_match.get("year")
 
-                    # ✅ STRICT SUBSTRING CHECK REMOVED (Regional Fix)
-                    result = (imdb_title, imdb_year)
+                    # ✅ YEAR VALIDATION (Poster Safety)
+                    if file_year and imdb_year and file_year != imdb_year:
+                        result = (None, None)
+                    else:
+                        result = (imdb_title, imdb_year)
 
     except Exception as e:
         logger.error(f"IMDb error: {e}")
