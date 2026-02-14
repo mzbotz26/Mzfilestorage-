@@ -36,6 +36,10 @@ tmdb_lock = asyncio.Lock()
 tmdb_semaphore = asyncio.Semaphore(3)
 TMDB_CACHE_TTL = 600  # 10 minutes
 
+# ===== GLOBAL FAST MOVIE CACHE (Performance Upgrade) =====
+movie_lookup_cache = {}
+movie_lookup_lock = asyncio.Lock()
+
 # --- DECREED ADDITION: START ---
 # A comprehensive map for detecting languages from filenames.
 # This map handles various abbreviations and full names, mapping them to a standard format.
@@ -95,10 +99,17 @@ async def get_definitive_title_from_imdb(title_from_filename):
     if not title_from_filename:
         return None, None
 
+    lookup_key = title_from_filename.lower().strip()
+
+    # 🔥 FAST GLOBAL CACHE CHECK
+    async with movie_lookup_lock:
+        if lookup_key in movie_lookup_cache:
+            return movie_lookup_cache[lookup_key]
+
     loop = asyncio.get_event_loop()
     current_time = loop.time()
 
-    # ===== CACHE CHECK =====
+    # ===== NORMAL TTL CACHE CHECK =====
     async with imdb_lock:
         if title_from_filename in imdb_cache:
             cached_data, timestamp = imdb_cache[title_from_filename]
@@ -114,34 +125,37 @@ async def get_definitive_title_from_imdb(title_from_filename):
 
             results = await loop.run_in_executor(
                 None,
-                lambda: ia.search_movie(title_from_filename, results=3)
+                lambda: ia.search_movie(title_from_filename, results=2)
             )
 
             if not results:
                 result = (None, None)
             else:
-
                 # Extract year from filename
                 year_match = re.search(r"\b(19|20)\d{2}\b", title_from_filename)
                 file_year = int(year_match.group()) if year_match else None
 
-                # Remove year for similarity comparison
+                # Remove year for fuzzy comparison
                 clean_search_title = re.sub(
                     r"\b(19|20)\d{2}\b",
                     "",
                     title_from_filename
                 ).strip()
 
-                best_match = None
                 best_score = 0
+                best_match = None
 
                 for movie in results:
                     imdb_title_raw = movie.get("title", "")
 
                     similarity = fuzz.ratio(
                         clean_search_title.lower(),
-                        imdb_title_raw.lower().strip()
+                        imdb_title_raw.lower()
                     )
+
+                    # Year boost if match
+                    if file_year and movie.get("year") == file_year:
+                        similarity += 15
 
                     if similarity > best_score:
                         best_score = similarity
@@ -158,7 +172,7 @@ async def get_definitive_title_from_imdb(title_from_filename):
                     imdb_title = best_match.get("title")
                     imdb_year = best_match.get("year")
 
-                    # ✅ YEAR VALIDATION (Poster Safety)
+                    # Final year safety check
                     if file_year and imdb_year and file_year != imdb_year:
                         result = (None, None)
                     else:
@@ -168,15 +182,32 @@ async def get_definitive_title_from_imdb(title_from_filename):
         logger.error(f"IMDb error: {e}")
         result = (None, None)
 
-    # ===== SAVE CACHE =====
+    # ===== SAVE TTL CACHE =====
     async with imdb_lock:
         imdb_cache[title_from_filename] = (result, current_time)
+
+    # ===== SAVE FAST GLOBAL CACHE =====
+    async with movie_lookup_lock:
+        movie_lookup_cache[lookup_key] = result
 
     return result
 
 # ---------------- NEW: EXTRA IMDb DATA (only added) ----------------
 
 async def get_imdb_extra(title):
+    if not title:
+        return "", "", ""
+
+    # 🔥 First check fast global cache
+    lookup_key = title.lower().strip()
+
+    async with movie_lookup_lock:
+        if lookup_key in movie_lookup_cache:
+            cached = movie_lookup_cache[lookup_key]
+            if isinstance(cached, tuple):
+                # Only title/year stored — so continue
+                pass
+
     try:
         loop = asyncio.get_event_loop()
 
@@ -200,14 +231,15 @@ async def get_imdb_extra(title):
             genres = ", ".join(movie.get("genres", []))
             rating = movie.get("rating", "")
             plot = ""
-            plots = movie.get("plot")
 
+            plots = movie.get("plot")
             if plots:
                 plot = plots[0].split("::")[0]
 
             return genres, rating, plot
 
-    except Exception:
+    except Exception as e:
+        logger.error(f"IMDb extra error: {e}")
         return "", "", ""
 
 # ================= TMDB EXTRA DATA =================
