@@ -66,35 +66,71 @@ async def stream_handler(request):
 
         file_size = media.file_size
         file_name = media.file_name or "video.mp4"
+        mime_type = media.mime_type or "video/mp4"
+
         range_header = request.headers.get("Range")
 
         start = 0
         end = file_size - 1
         status = 200
 
+        # ================= RANGE PARSE =================
         if range_header:
             status = 206
             bytes_range = range_header.replace("bytes=", "").split("-")
-            start = int(bytes_range[0])
+
+            if bytes_range[0]:
+                start = int(bytes_range[0])
+
             if len(bytes_range) > 1 and bytes_range[1]:
                 end = int(bytes_range[1])
 
+        # ================= RANGE VALIDATION =================
+        if start >= file_size:
+            return web.Response(status=416)
+
+        if end >= file_size:
+            end = file_size - 1
+
+        content_length = end - start + 1
+
         headers = {
-            "Content-Type": media.mime_type or "video/mp4",
+            "Content-Type": mime_type,
             "Accept-Ranges": "bytes",
-            "Content-Length": str(end - start + 1),
-            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(content_length),
             "Content-Disposition": f'inline; filename="{file_name}"'
         }
+
+        if status == 206:
+            headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
 
         resp = web.StreamResponse(status=status, headers=headers)
         await resp.prepare(request)
 
+        # ================= TELEGRAM SAFE STREAM =================
+
+        chunk_size = 512 * 1024  # 512KB (Telegram safe)
+
+        # Align offset to Telegram chunk boundary
+        aligned_offset = start - (start % chunk_size)
+
+        bytes_sent = 0
+        skip_bytes = start - aligned_offset
+        remaining = content_length
+
         async for chunk in bot.stream_media(
             message,
-            offset=start,
-            limit=1024 * 1024
+            offset=aligned_offset,
+            limit=chunk_size
         ):
+
+            if skip_bytes:
+                chunk = chunk[skip_bytes:]
+                skip_bytes = 0
+
+            if len(chunk) > remaining:
+                chunk = chunk[:remaining]
+
             try:
                 await resp.write(chunk)
             except (
@@ -105,12 +141,18 @@ async def stream_handler(request):
             ):
                 break
 
+            bytes_sent += len(chunk)
+            remaining -= len(chunk)
+
+            if remaining <= 0:
+                break
+
         return resp
 
     except RPCError:
         return web.Response(status=404, text="Telegram file inaccessible.")
 
-    except Exception as e:
+    except Exception:
         logger.exception("Stream error")
         return web.Response(status=500, text="Stream failed.")
 
