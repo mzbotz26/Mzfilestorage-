@@ -22,6 +22,20 @@ TEXT_MESSAGE_LIMIT = 4096
 
 ia = Cinemagoer()
 
+# ================= GLOBAL STABILITY LAYER =================
+
+# IMDb Stability
+imdb_cache = {}
+imdb_lock = asyncio.Lock()
+imdb_semaphore = asyncio.Semaphore(2)
+IMDB_CACHE_TTL = 600  # 10 minutes
+
+# TMDB Stability
+tmdb_cache = {}
+tmdb_lock = asyncio.Lock()
+tmdb_semaphore = asyncio.Semaphore(3)
+TMDB_CACHE_TTL = 600  # 10 minutes
+
 # --- DECREED ADDITION: START ---
 # A comprehensive map for detecting languages from filenames.
 # This map handles various abbreviations and full names, mapping them to a standard format.
@@ -78,51 +92,67 @@ def format_bytes(size):
     else: return f"{int(size)} {power_labels[n]}"
 
 async def get_definitive_title_from_imdb(title_from_filename):
-    """
-    Uses the cinemagoer library to find the official title and year from IMDb,
-    with an ultra-strict "reality check" to prevent mismatches.
-    """
     if not title_from_filename:
         return None, None
+
+    loop = asyncio.get_event_loop()
+    current_time = loop.time()
+
+    # ===== CACHE CHECK =====
+    async with imdb_lock:
+        if title_from_filename in imdb_cache:
+            cached_data, timestamp = imdb_cache[title_from_filename]
+            if current_time - timestamp < IMDB_CACHE_TTL:
+                return cached_data
+            else:
+                del imdb_cache[title_from_filename]
+
     try:
-        loop = asyncio.get_event_loop()
-        logger.info(f"Querying IMDb with cleaned title: '{title_from_filename}'")
-        # Search for the movie
-        results = await loop.run_in_executor(None, lambda: ia.search_movie(title_from_filename, results=1))
-        
-        if not results:
-            logger.warning(f"IMDb returned no results for '{title_from_filename}'")
-            return None, None
-            
-        movie = results[0]
-        imdb_title_raw = movie.get('title')
-        
-        normalized_original = title_from_filename.lower().strip()
-        normalized_imdb = imdb_title_raw.lower().strip()
-        
-        similarity = fuzz.ratio(normalized_original, normalized_imdb)
+        async with imdb_semaphore:
 
-        logger.info(f"IMDb Check: Original='{normalized_original}', IMDb='{normalized_imdb}', Strict Ratio Similarity={similarity}%")
+            logger.info(f"IMDb Query: '{title_from_filename}'")
 
-        if similarity < 60:
-            logger.warning(f"IMDb mismatch REJECTED! Original: '{title_from_filename}', IMDb: '{imdb_title_raw}', Similarity too low.")
-            return None, None
+            results = await loop.run_in_executor(
+                None,
+                lambda: ia.search_movie(title_from_filename, results=1)
+            )
 
-        await loop.run_in_executor(None, lambda: ia.update(movie, info=['main']))
-        
-        imdb_title = movie.get('title')
-        imdb_year = movie.get('year')
+            if not results:
+                result = (None, None)
+            else:
+                movie = results[0]
+                imdb_title_raw = movie.get("title", "")
 
-        if title_from_filename.lower() not in imdb_title.lower():
-             logger.warning(f"IMDb title corruption REJECTED! Original: '{title_from_filename}', Corrupted: '{imdb_title}'")
-             return None, None
+                similarity = fuzz.ratio(
+                    title_from_filename.lower().strip(),
+                    imdb_title_raw.lower().strip()
+                )
 
-        logger.info(f"IMDb match ACCEPTED for '{title_from_filename}': '{imdb_title} ({imdb_year})'")
-        return imdb_title, imdb_year
+                if similarity < 60:
+                    result = (None, None)
+                else:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: ia.update(movie, info=["main"])
+                    )
+
+                    imdb_title = movie.get("title")
+                    imdb_year = movie.get("year")
+
+                    if title_from_filename.lower() not in imdb_title.lower():
+                        result = (None, None)
+                    else:
+                        result = (imdb_title, imdb_year)
 
     except Exception as e:
-        logger.error(f"Error fetching data from IMDb for '{title_from_filename}': {e}")
-        return None, None
+        logger.error(f"IMDb error: {e}")
+        result = (None, None)
+
+    # ===== SAVE CACHE =====
+    async with imdb_lock:
+        imdb_cache[title_from_filename] = (result, current_time)
+
+    return result
 
 # ---------------- NEW: EXTRA IMDb DATA (only added) ----------------
 
@@ -150,80 +180,127 @@ async def get_imdb_extra(title):
 # ================= TMDB EXTRA DATA =================
 
 async def get_tmdb_extra(title, year=None):
+    api = Config.TMDB_API_KEY
+    if not api:
+        return "", "", ""
+
+    cache_key = f"{title}_{year}"
+    loop = asyncio.get_event_loop()
+    current_time = loop.time()
+
+    # ===== CACHE CHECK =====
+    async with tmdb_lock:
+        if cache_key in tmdb_cache:
+            cached_data, timestamp = tmdb_cache[cache_key]
+            if current_time - timestamp < TMDB_CACHE_TTL:
+                return cached_data
+            else:
+                del tmdb_cache[cache_key]
+
     try:
-        api = Config.TMDB_API_KEY
-        if not api:
-            return "", "", ""
+        async with tmdb_semaphore:
 
-        query = title.replace(" ", "%20")
-        url = f"https://api.themoviedb.org/3/search/movie?api_key={api}&query={query}"
+            query = title.replace(" ", "%20")
+            url = f"https://api.themoviedb.org/3/search/movie?api_key={api}&query={query}"
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                data = await resp.json()
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as resp:
+                    data = await resp.json()
 
-        results = data.get("results")
-        if not results:
-            return "", "", ""
+            results = data.get("results")
+            if not results:
+                result = ("", "", "")
+            else:
+                movie = results[0]
 
-        movie = results[0]
-        overview = movie.get("overview", "")
-        rating = movie.get("vote_average", "")
-        genre_ids = movie.get("genre_ids", [])
+                overview = movie.get("overview", "")
+                rating = movie.get("vote_average", "")
+                genre_ids = movie.get("genre_ids", [])
 
-        # genre mapping
-        genre_map = {
-            28:"Action",12:"Adventure",16:"Animation",35:"Comedy",80:"Crime",
-            99:"Documentary",18:"Drama",10751:"Family",14:"Fantasy",36:"History",
-            27:"Horror",10402:"Music",9648:"Mystery",10749:"Romance",
-            878:"Sci-Fi",10770:"TV",53:"Thriller",10752:"War",37:"Western"
-        }
+                genre_map = {
+                    28:"Action",12:"Adventure",16:"Animation",35:"Comedy",
+                    80:"Crime",99:"Documentary",18:"Drama",10751:"Family",
+                    14:"Fantasy",36:"History",27:"Horror",10402:"Music",
+                    9648:"Mystery",10749:"Romance",878:"Sci-Fi",
+                    53:"Thriller",10752:"War",37:"Western"
+                }
 
-        genres = ", ".join([genre_map.get(i,"") for i in genre_ids if i in genre_map])
+                genres = ", ".join(
+                    genre_map.get(i, "") for i in genre_ids if i in genre_map
+                )
 
-        return genres, rating, overview
+                result = (genres, rating, overview)
 
     except Exception:
-        return "", "", ""
+        result = ("", "", "")
+
+    # ===== SAVE CACHE =====
+    async with tmdb_lock:
+        tmdb_cache[cache_key] = (result, current_time)
+
+    return result
 
 # ================= TMDB TV EXTRA DATA =================
 
 async def get_tmdb_tv_extra(title, year=None):
+    api = Config.TMDB_API_KEY
+    if not api:
+        return "", "", ""
+
+    cache_key = f"tv_{title}_{year}"
+    loop = asyncio.get_event_loop()
+    current_time = loop.time()
+
+    # ===== CACHE CHECK =====
+    async with tmdb_lock:
+        if cache_key in tmdb_cache:
+            cached_data, timestamp = tmdb_cache[cache_key]
+            if current_time - timestamp < TMDB_CACHE_TTL:
+                return cached_data
+            else:
+                del tmdb_cache[cache_key]
+
     try:
-        api = Config.TMDB_API_KEY
-        if not api:
-            return "", "", ""
+        async with tmdb_semaphore:
 
-        query = title.replace(" ", "%20")
-        url = f"https://api.themoviedb.org/3/search/tv?api_key={api}&query={query}"
+            query = title.replace(" ", "%20")
+            url = f"https://api.themoviedb.org/3/search/tv?api_key={api}&query={query}"
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                data = await resp.json()
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as resp:
+                    data = await resp.json()
 
-        results = data.get("results")
-        if not results:
-            return "", "", ""
+            results = data.get("results")
+            if not results:
+                result = ("", "", "")
+            else:
+                show = results[0]
 
-        show = results[0]
-        overview = show.get("overview", "")
-        rating = show.get("vote_average", "")
-        genre_ids = show.get("genre_ids", [])
+                overview = show.get("overview", "")
+                rating = show.get("vote_average", "")
+                genre_ids = show.get("genre_ids", [])
 
-        genre_map = {
-            10759:"Action & Adventure",16:"Animation",35:"Comedy",80:"Crime",
-            99:"Documentary",18:"Drama",10751:"Family",10762:"Kids",
-            9648:"Mystery",10763:"News",10764:"Reality",
-            10765:"Sci-Fi & Fantasy",10766:"Soap",10767:"Talk",
-            10768:"War & Politics",37:"Western"
-        }
+                genre_map = {
+                    10759:"Action & Adventure",16:"Animation",35:"Comedy",
+                    80:"Crime",99:"Documentary",18:"Drama",10751:"Family",
+                    9648:"Mystery",10765:"Sci-Fi & Fantasy",
+                    53:"Thriller",10768:"War & Politics"
+                }
 
-        genres = ", ".join([genre_map.get(i,"") for i in genre_ids if i in genre_map])
+                genres = ", ".join(
+                    genre_map.get(i, "") for i in genre_ids if i in genre_map
+                )
 
-        return genres, rating, overview
+                result = (genres, rating, overview)
 
     except Exception:
-        return "", "", ""
+        result = ("", "", "")
+
+    # ===== SAVE CACHE =====
+    async with tmdb_lock:
+        tmdb_cache[cache_key] = (result, current_time)
+
+    return result
 
 # ================= HYBRID IMDb + TMDB =================
 
