@@ -159,22 +159,35 @@ async def get_definitive_title_from_imdb(title_from_filename):
 async def get_imdb_extra(title):
     try:
         loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(None, lambda: ia.search_movie(title, results=1))
-        if not results:
-            return "", "", ""
 
-        movie = results[0]
-        await loop.run_in_executor(None, lambda: ia.update(movie))
+        async with imdb_semaphore:
 
-        genres = ", ".join(movie.get("genres", []))
-        rating = movie.get("rating", "")
-        plot = ""
-        plots = movie.get("plot")
-        if plots:
-            plot = plots[0].split("::")[0]
+            results = await loop.run_in_executor(
+                None,
+                lambda: ia.search_movie(title, results=1)
+            )
 
-        return genres, rating, plot
-    except:
+            if not results:
+                return "", "", ""
+
+            movie = results[0]
+
+            await loop.run_in_executor(
+                None,
+                lambda: ia.update(movie)
+            )
+
+            genres = ", ".join(movie.get("genres", []))
+            rating = movie.get("rating", "")
+            plot = ""
+            plots = movie.get("plot")
+
+            if plots:
+                plot = plots[0].split("::")[0]
+
+            return genres, rating, plot
+
+    except Exception:
         return "", "", ""
 
 # ================= TMDB EXTRA DATA =================
