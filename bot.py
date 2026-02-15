@@ -440,39 +440,29 @@ class Bot(Client):
 
 
     async def connection_health_check(self):
-        """
-        Non-blocking health monitor.
-        Logs errors but NEVER pauses the bot.
-        """
-        await asyncio.sleep(15)
+    await asyncio.sleep(15)
 
-        while True:
-            try:
-                if self.owner_db_channel:
-                    await self.get_chat(int(self.owner_db_channel))
+    while True:
+        try:
+            if self.owner_db_channel:
+                await self.get_chat(int(self.owner_db_channel))
 
-                # If everything is fine
-                if not self.last_health_check_status:
-                    logger.info("✅ HEALTH RESTORED: Bot operational again.")
+            if not self.last_health_check_status:
+                logger.info("✅ HEALTH RESTORED")
 
-                self.last_health_check_status = True
-                self.last_health_check_error = ""
+            self.last_health_check_status = True
+            self.last_health_check_error = ""
 
-            except Exception as e:
-                error_text = str(e)
+        except Exception as e:
+            error_text = str(e)
 
-                if error_text != self.last_health_check_error:
-                    logger.error(f"⚠️ Health Warning: {error_text}")
+            if error_text != self.last_health_check_error:
+                logger.error(f"⚠️ Health Warning: {error_text}")
 
-                self.last_health_check_status = False
-                self.last_health_check_error = error_text
+            self.last_health_check_status = False
+            self.last_health_check_error = error_text
 
-                # 🔥 IMPORTANT:
-                # DO NOT clear is_healthy
-                # DO NOT pause operations
-                # Bot continues running
-
-            await asyncio.sleep(60)
+        await asyncio.sleep(60)
 
     async def start(self):
         await super().start()
