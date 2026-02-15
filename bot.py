@@ -255,9 +255,7 @@ class Bot(Client):
                         continue
                     await asyncio.sleep(2.5)
 
-            if dashboard_msg: await self.execute_with_retry(dashboard_msg.delete)
-            await self.send_message(user_id, "✅ **Batch processing complete!** All files have been successfully posted.")
-
+            if dashboard_msg: await self.execute_with_retry(self.send_message, user_id, "✅ **Batch processing complete!** All files have been successfully posted.")
         except UserIsBlocked:
             logger.warning(f"User {user_id} blocked the bot during finalize_collection.")
         except Exception as e:
@@ -288,7 +286,7 @@ class Bot(Client):
                     logger.error(f"User {user_id} has no Index/Owner DB channel. Skipping file '{media.file_name}'.")
                     return
 
-                copied_message = await self.execute_with_retry(message.copy, self.owner_db_channel)
+                copied_message = await self.execute_with_retry(message.copy, int(self.owner_db_channel))
                 
                 if not copied_message:
                     logger.critical(f"FATAL: message.copy returned None for user {user_id} on file '{media.file_name}'.")
