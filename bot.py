@@ -75,7 +75,6 @@ class Bot(Client):
         for i in range(retries):
             try:
                 await self.is_in_flood_wait.wait()
-                await self.is_healthy.wait()
                 return await coro(*args, **kwargs)
 
             except FloodWait as e:
@@ -276,7 +275,6 @@ class Bot(Client):
         async with self.user_batch_locks[user_id]:
             try:
                 await self.is_in_flood_wait.wait()
-                await self.is_healthy.wait()
 
                 media = getattr(message, message.media.value, None)
                 if media and hasattr(media, 'duration') and media.duration and media.duration < 1200:
@@ -444,60 +442,39 @@ class Bot(Client):
 
 
     async def connection_health_check(self):
-        logger.info("✅ Bot health monitor started.")
+        """
+        Non-blocking health monitor.
+        Logs errors but NEVER pauses the bot.
+        """
+        await asyncio.sleep(15)
 
         while True:
-            # ⏳ Safe interval for Telegram
-            await asyncio.sleep(300)  # 5 minutes
-
-            if not self.owner_db_channel:
-                continue
-
-            is_currently_ok = False
-            error_details = ""
-
             try:
-                # 🔥 Only warm-up, no message send
-                await self.get_chat(int(self.owner_db_channel))
-                is_currently_ok = True
+                if self.owner_db_channel:
+                    await self.get_chat(int(self.owner_db_channel))
+
+                # If everything is fine
+                if not self.last_health_check_status:
+                    logger.info("✅ HEALTH RESTORED: Bot operational again.")
+
+                self.last_health_check_status = True
                 self.last_health_check_error = ""
 
-            except (PeerIdInvalid, ChannelInvalid) as e:
-                # ⚠️ Telegram cache issues – IGNORE
-                logger.warning(f"Health check ignored Telegram cache error: {e}")
-                is_currently_ok = True
-
             except Exception as e:
-                error_details = str(e)
-                logger.error(f"Health Check FAILED: {error_details}")
-                self.last_health_check_error = error_details
-                is_currently_ok = False
+                error_text = str(e)
 
-            # ---------- STATE MANAGEMENT ----------
-            if is_currently_ok:
-                if not self.is_healthy.is_set():
-                    logger.info("✅ HEALTH RESTORED: Bot operational again.")
-                    self.is_healthy.set()
-                self.last_health_check_status = True
-
-            else:
-                if self.is_healthy.is_set():
-                    logger.critical("🚨 BOT UNHEALTHY: Pausing operations.")
-                    self.is_healthy.clear()
-                    try:
-                        await self.send_message(
-                            Config.ADMIN_ID,
-                            (
-                                "🚨 **BOT HEALTH WARNING**\n\n"
-                                f"Owner DB Channel unreachable.\n\n"
-                                f"**Reason:** `{error_details}`\n\n"
-                                "Bot will auto-recover automatically."
-                            )
-                        )
-                    except Exception as e:
-                        logger.error(f"Admin notify failed: {e}")
+                if error_text != self.last_health_check_error:
+                    logger.error(f"⚠️ Health Warning: {error_text}")
 
                 self.last_health_check_status = False
+                self.last_health_check_error = error_text
+
+                # 🔥 IMPORTANT:
+                # DO NOT clear is_healthy
+                # DO NOT pause operations
+                # Bot continues running
+
+            await asyncio.sleep(60)
 
     async def start(self):
         await super().start()
