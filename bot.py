@@ -440,7 +440,7 @@ class Bot(Client):
 
 
     async def connection_health_check(self):
-    await asyncio.sleep(15)
+        await asyncio.sleep(15)
 
     while True:
         try:
