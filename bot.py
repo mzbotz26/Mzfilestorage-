@@ -188,86 +188,174 @@ class Bot(Client):
         self.imdb_cache.clear()
         dashboard_msg = None
         try:
-            if user_id not in self.open_batches: return
+            if user_id not in self.open_batches:
+                return
+
             collection_data = self.open_batches.pop(user_id)
-            if collection_data.get('timer'): collection_data['timer'].cancel()
+            if collection_data.get('timer'):
+                collection_data['timer'].cancel()
 
             messages = collection_data.get('messages', [])
             dashboard_msg = collection_data.get('dashboard_message')
+
             if not messages:
-                if dashboard_msg: await self.execute_with_retry(dashboard_msg.delete)
+                if dashboard_msg:
+                    await self.execute_with_retry(dashboard_msg.delete)
                 return
 
             if dashboard_msg:
                 status = f"🔬 **Status:** Analyzing & grouping `{len(messages)}` files..."
-                await self.execute_with_retry(dashboard_msg.edit_text, await self._generate_dashboard_text(collection_data, status))
+                await self.execute_with_retry(
+                    dashboard_msg.edit_text,
+                    await self._generate_dashboard_text(collection_data, status)
+                )
 
-            tasks = [clean_and_parse_filename(getattr(msg, msg.media.value).file_name, self.imdb_cache) for msg in messages]
+            tasks = [
+                clean_and_parse_filename(
+                    getattr(msg, msg.media.value).file_name,
+                    self.imdb_cache
+                ) for msg in messages
+            ]
             file_infos = await asyncio.gather(*tasks)
 
             logical_batches = {}
             SIMILARITY_THRESHOLD = 85
+
             for i, info in enumerate(file_infos):
-                if not info or not info.get("batch_title"): continue
+                if not info or not info.get("batch_title"):
+                    continue
+
                 current_msg = messages[i]
                 current_title = info["batch_title"]
-                best_match_key = max(logical_batches.keys(), key=lambda k: fuzz.token_set_ratio(current_title, k), default=None)
+
+                best_match_key = max(
+                    logical_batches.keys(),
+                    key=lambda k: fuzz.token_set_ratio(current_title, k),
+                    default=None
+                )
+
                 if best_match_key and fuzz.token_set_ratio(current_title, best_match_key) > SIMILARITY_THRESHOLD:
                     logical_batches[best_match_key].append(current_msg)
-                else: logical_batches[current_title] = [current_msg]
+                else:
+                    logical_batches[current_title] = [current_msg]
 
             total_batches = len(logical_batches)
+
             if dashboard_msg:
                 status = f"✅ **Status:** Found `{total_batches}` logical series/batches. Processing..."
-                await self.execute_with_retry(dashboard_msg.edit_text, await self._generate_dashboard_text(collection_data, status))
+                await self.execute_with_retry(
+                    dashboard_msg.edit_text,
+                    await self._generate_dashboard_text(collection_data, status)
+                )
 
             user = await get_user(user_id)
             post_channel_id = await get_post_channel(user_id) if user else None
+
             if not post_channel_id or not await notify_and_remove_invalid_channel(self, user_id, post_channel_id, "Post"):
-                if dashboard_msg: await self.execute_with_retry(dashboard_msg.edit_text, "❌ **Error!** Could not access a valid Post Channel. Please set one in settings.")
+                if dashboard_msg:
+                    await self.execute_with_retry(
+                        dashboard_msg.edit_text,
+                        "❌ **Error!** Could not access a valid Post Channel. Please set one in settings."
+                    )
                 return
 
             for i, (batch_title, batch_messages) in enumerate(logical_batches.items()):
                 if dashboard_msg:
                     status = f"🚀 **Status:** Posting batch {i + 1}/{total_batches} ('{batch_title}')..."
-                    await self.execute_with_retry(dashboard_msg.edit_text, await self._generate_dashboard_text(collection_data, status))
+                    await self.execute_with_retry(
+                        dashboard_msg.edit_text,
+                        await self._generate_dashboard_text(collection_data, status)
+                    )
 
                 posts_to_send = await create_post(self, user_id, batch_messages, self.imdb_cache)
+
                 if not posts_to_send:
                     logger.warning(f"No posts generated for batch '{batch_title}' for user {user_id}.")
-                    await self.send_message(user_id, f"⚠️ **Skipped Batch:** No valid posts could be generated for '{batch_title}'.")
+                    await self.send_message(
+                        user_id,
+                        f"⚠️ **Skipped Batch:** No valid posts could be generated for '{batch_title}'."
+                    )
                     continue
 
                 for poster, caption, footer in posts_to_send:
                     sent_message = None
                     try:
                         if poster:
-                            sent_message = await self.execute_with_retry(self.send_photo, chat_id=post_channel_id, photo=poster, caption=caption, reply_markup=footer)
+                            sent_message = await self.execute_with_retry(
+                                self.send_photo,
+                                chat_id=post_channel_id,
+                                photo=poster,
+                                caption=caption,
+                                reply_markup=footer
+                            )
                         else:
-                            sent_message = await self.execute_with_retry(self.send_message, chat_id=post_channel_id, text=caption, reply_markup=footer, disable_web_page_preview=True)
+                            sent_message = await self.execute_with_retry(
+                                self.send_message,
+                                chat_id=post_channel_id,
+                                text=caption,
+                                reply_markup=footer,
+                                disable_web_page_preview=True
+                            )
+
                         if sent_message:
-                            await save_post(owner_id=user_id, post_channel_id=post_channel_id, message_id=sent_message.id, poster=poster, caption=caption, reply_markup=footer)
+                            await save_post(
+                                owner_id=user_id,
+                                post_channel_id=post_channel_id,
+                                message_id=sent_message.id,
+                                poster=poster,
+                                caption=caption,
+                                reply_markup=footer
+                            )
                         else:
                             raise Exception("execute_with_retry returned None")
+
                     except Exception as e:
                         logger.error(f"Failed to send post for user {user_id}: {e}")
-                        await self.send_message(user_id, "❌ **Posting Error!**\nFailed to send a file to your Auto Post Channel. Please check bot permissions and try again.")
+                        await self.send_message(
+                            user_id,
+                            "❌ **Posting Error!**\nFailed to send a file to your Auto Post Channel. Please check bot permissions and try again."
+                        )
                         continue
+
                     await asyncio.sleep(2.5)
 
-            if dashboard_msg: await self.execute_with_retry(self.send_message, user_id, "✅ **Batch processing complete!** All files have been successfully posted.")
+            # ✅ Completion + Auto Delete (RESTORED OLD BEHAVIOUR)
+            if dashboard_msg:
+                await self.execute_with_retry(
+                    self.send_message,
+                    user_id,
+                    "✅ **Batch processing complete!** All files have been successfully posted."
+                )
+
+                try:
+                    await asyncio.sleep(3)
+                    await self.execute_with_retry(dashboard_msg.delete)
+                except Exception as e:
+                    logger.warning(f"Dashboard auto-delete failed: {e}")
+
         except UserIsBlocked:
             logger.warning(f"User {user_id} blocked the bot during finalize_collection.")
+
         except Exception as e:
             logger.exception(f"CRITICAL Error finalizing collection for user {user_id}: {e}")
             if dashboard_msg:
-                try: await self.execute_with_retry(dashboard_msg.edit_text, f"❌ **Error!** An unexpected error occurred: {e}")
-                except UserIsBlocked: pass
+                try:
+                    await self.execute_with_retry(
+                        dashboard_msg.edit_text,
+                        f"❌ **Error!** An unexpected error occurred: {e}"
+                    )
+                except UserIsBlocked:
+                    pass
+
         finally:
             self.processing_users.discard(user_id)
             self.last_dashboard_edit_time.pop(user_id, None)
+
             if user_id in self.waiting_files and self.waiting_files[user_id]:
-                await self._start_new_collection(user_id, self.waiting_files.pop(user_id))
+                await self._start_new_collection(
+                    user_id,
+                    self.waiting_files.pop(user_id)
+    )
     
     async def process_new_file(self, message, user_id):
         async with self.user_batch_locks[user_id]:
